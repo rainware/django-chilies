@@ -1,0 +1,6 @@
+.idea
+django-chilies.iml
+dist
+build
+*.egg-info
+*/__pycache__
