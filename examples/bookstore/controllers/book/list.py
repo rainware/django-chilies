@@ -7,7 +7,7 @@ from rest_framework import serializers
 from bookstore.models import Author, Book
 
 from django_chilies.serializers import BlankableIntegerField
-from bookstore.tasks import test_tracker
+# from bookstore.tasks import test_tracker
 
 from django_chilies.utils import exception_transfer
 from libs.errors import DingServiceError, ding_operator
@@ -46,7 +46,7 @@ class ListBooksController(TrackedController):
 
         rs = Book.prefetch_related('author').filter(**filters)
 
-        self.delay(test_tracker, 1)
+        # self.delay(test_tracker, 1)
 
         # self.ding()
 

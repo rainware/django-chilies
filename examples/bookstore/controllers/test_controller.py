@@ -11,5 +11,5 @@ class TestController(APIController):
     view__permission_classes = []
 
     def process(self, *args, **kwargs):
-        b = self.params['a']
+        b = self.params.get('a')
         return Response({'b': b})
