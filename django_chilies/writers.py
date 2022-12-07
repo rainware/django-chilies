@@ -1,13 +1,15 @@
+import json
 import logging
+import sys
 
 from django.conf import settings
 from kafka import KafkaProducer
 
-from .settings import TRACKER_DEFAULT
-from .utils import singleton_class, get_func
+from .settings import DEFAULT
+from .utils import singleton_class, get_func, JSONEncoder
 
-writers_config = dict(TRACKER_DEFAULT['writers'], **settings.DJANGO_CHILIES_TRACKER.get('writers', {}))
-default_level = settings.DJANGO_CHILIES_TRACKER.get('level') or TRACKER_DEFAULT['level']
+writers_config = dict(DEFAULT['TRACKER']['writers'], **getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('writers', {}))
+default_level = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('level') or DEFAULT['TRACKER']['level']
 
 
 def instance_from_settings(name):
@@ -49,7 +51,8 @@ class KafkaWriter(Writer):
         self.producer = KafkaProducer(**producer)
 
     def write(self, o):
-        if (level := o.get('level')) and not self.is_enabled_for(level):
+        level = o.get('level')
+        if level and not self.is_enabled_for(level):
             return
         self.producer.send(self.topic, o)
 
@@ -57,3 +60,17 @@ class KafkaWriter(Writer):
         """
         :return:
         """
+
+
+class ConsoleWriter(Writer):
+    def __init__(self, level=None, *args, **kwargs):
+        super().__init__(level=level, *args, **kwargs)
+
+    def write(self, o):
+        level = o.get('level')
+        if level and not self.is_enabled_for(level):
+            return
+        sys.stdout.write(json.dumps(o, indent=2, ensure_ascii=False, cls=JSONEncoder))
+
+    def flush(self):
+        sys.stdout.flush()

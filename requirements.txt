@@ -1,6 +1,6 @@
-django==3.1
-djangorestframework==3.11.1
-celery==5.2.1
+django==3.0.4
+djangorestframework==3.11.0
+celery==4.4.0
 kafka-python==2.0.2
-pytz==2021.3
+pytz==2020.1
 django-composite-foreignkey==1.1.0

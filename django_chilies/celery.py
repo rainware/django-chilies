@@ -5,7 +5,7 @@ from celery import Task
 from django.conf import settings
 
 from . import trackers
-from .settings import TRACKER_DEFAULT
+from .settings import DEFAULT
 from .trackers import TaskTracker
 from .utils import generate_uuid
 
@@ -35,7 +35,7 @@ def task_tracker():
         def __dec(*args, **kwargs):
             s_time = time.time()
             # 实例化task tracker
-            tracker_name = settings.DJANGO_CHILIES_TRACKER.get('task_tracker') or TRACKER_DEFAULT['task_tracker']
+            tracker_name = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('task_tracker') or DEFAULT['TRACKER']['task_tracker']
             tracker: TaskTracker = trackers.instance_from_settings(tracker_name)
             assert isinstance(tracker, TaskTracker)
             bind_task = False

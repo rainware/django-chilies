@@ -1,3 +1,0 @@
-DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
-DATETIME_FORMAT_TZ = '%Y-%m-%dT%H:%M:%SZ'
-TIME_FORMAT = '%H:%M:%S'

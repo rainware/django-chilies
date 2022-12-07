@@ -5,12 +5,36 @@ import json
 import random
 import threading
 import time
-from json import JSONEncoder
+from functools import wraps
+from json import JSONEncoder as JEncoder
 
+import pytz
+from django.conf import settings
+from .settings import DEFAULT
 from django.forms.utils import to_current_timezone, from_current_timezone
+from rest_framework.renderers import JSONRenderer as JRenderer
+
+from django_chilies.errors import APIError
+
+DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
+DATETIME_FORMAT_TZ = '%Y-%m-%dT%H:%M:%SZ'
+TIME_FORMAT = '%H:%M:%S'
 
 
-class CustomJsonEncoder(JSONEncoder):
+def get_func(func_name):
+    """
+    根据func_name反射得到func
+    :param func_name:例如apps.api.tasks.request_info
+    :return:
+    """
+    rs = func_name.rsplit('.', 1)
+    if len(rs) == 2:
+        return getattr(importlib.import_module(rs[0]), rs[1])
+    else:
+        return eval(func_name)
+
+
+class _JSONEncoder(JEncoder):
     DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
     TIME_FORMAT = '%H:%M:%S'
 
@@ -23,8 +47,19 @@ class CustomJsonEncoder(JSONEncoder):
         return super().default(obj)
 
 
+je_cname = getattr(settings, 'DJANGO_CHILIES', {}).get('JSON_ENCODER') or DEFAULT['JSON_ENCODER']
+if je_cname == 'django_chilies.utils.JSONEncoder':
+    JSONEncoder = _JSONEncoder
+else:
+    JSONEncoder = get_func(je_cname)
+
+
+class JSONRenderer(JRenderer):
+    encoder_class = JSONEncoder
+
+
 def deepcopy(o):
-    return json.loads(json.dumps(o, cls=CustomJsonEncoder))
+    return json.loads(json.dumps(o, cls=JSONEncoder))
 
 
 def headers_dict(headers):
@@ -83,17 +118,26 @@ def singleton_class(post_init=None):
     return _dec
 
 
-def get_func(func_name):
+def exception_transfer(target_exception_cls):
     """
-    根据func_name反射得到func
-    :param func_name:例如apps.api.tasks.request_info
-    :return:
+    异常转化
     """
-    rs = func_name.rsplit('.', 1)
-    if len(rs) == 2:
-        return getattr(importlib.import_module(rs[0]), rs[1])
-    else:
-        return eval(func_name)
+
+    def _dec(func):
+
+        @wraps(func)
+        def __dec(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except APIError:
+                raise
+            except Exception as e:
+                # 为了保留原异常栈信息, 需要同时raise traceback对象
+                raise target_exception_cls().with_traceback(e.__traceback__)
+
+        return __dec
+
+    return _dec
 
 
 def time_to_current_timezone(value):

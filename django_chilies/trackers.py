@@ -11,15 +11,15 @@ from copy import deepcopy
 from django.conf import settings
 
 from . import writers
-from .settings import TRACKER_DEFAULT
-from .utils import CustomJsonEncoder, generate_uuid, get_func
+from .settings import DEFAULT
+from .utils import JSONEncoder, generate_uuid, get_func
 
 sys_logger = logging.getLogger('django')
 
-trackers_config = dict(TRACKER_DEFAULT['trackers'], **settings.DJANGO_CHILIES_TRACKER.get('trackers', {}))
-default_buffer_size = settings.DJANGO_CHILIES_TRACKER.get('buffer_size') or TRACKER_DEFAULT['buffer_size']
-default_level = settings.DJANGO_CHILIES_TRACKER.get('level') or TRACKER_DEFAULT['level']
-default_console = settings.DJANGO_CHILIES_TRACKER.get('console') or TRACKER_DEFAULT['console']
+trackers_config = dict(DEFAULT['TRACKER']['trackers'], **getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('trackers', {}))
+default_buffer_size = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('buffer_size') or DEFAULT['TRACKER']['buffer_size']
+default_level = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('level') or DEFAULT['TRACKER']['level']
+default_console = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('console') or DEFAULT['TRACKER']['console']
 
 
 def get_level_name(level):
@@ -202,26 +202,30 @@ class SessionLogger(Logger):
         return super().debug(*args, **kwargs)
 
     def info(self, *args, **kwargs):
-        if res := super().info(*args, **kwargs):
+        res = super().info(*args, **kwargs)
+        if res:
             if self.session_level < logging.INFO:
                 self.set_session_level(logging.INFO)
         return res
 
     def warn(self, *args, **kwargs):
-        if res := super().warn(*args, **kwargs):
+        res = super().warn(*args, **kwargs)
+        if res:
             if self.session_level < logging.WARN:
                 self.set_session_level(logging.WARN)
         return res
 
     def error(self, *args, **kwargs):
-        if res := super().error(*args, **kwargs):
+        res = super().error(*args, **kwargs)
+        if res:
             self.has_error = True
             if self.session_level < logging.ERROR:
                 self.set_session_level(logging.ERROR)
         return res
 
     def exception(self, *args, **kwargs):
-        if res := super().exception(*args, **kwargs):
+        res = super().exception(*args, **kwargs)
+        if res:
             self.has_error = True
             if self.session_level < logging.ERROR:
                 self.set_session_level(logging.ERROR)
@@ -278,7 +282,8 @@ class Tracker(object):
         if kwargs.pop('new_session', False):
             with self.new_session() as session:
                 return session.error(*args, **kwargs)
-        if res := self.session.error(*args, **kwargs):
+        res = self.session.error(*args, **kwargs)
+        if res:
             self.context['has_uncritical_error'] = True
             self.set_context_level(logging.WARN)
         return res
@@ -288,7 +293,8 @@ class Tracker(object):
         if kwargs.pop('new_session', False):
             with self.new_session() as session:
                 return session.exception(*args, **kwargs)
-        if res := self.session.exception(*args, **kwargs):
+        res = self.session.exception(*args, **kwargs)
+        if res:
             self.context['has_uncritical_error'] = True
             self.set_context_level(logging.WARN)
 
@@ -389,17 +395,17 @@ class HTTPTracker(Tracker):
         self.console.info(text)
 
     def set_request_headers(self, headers):
-        text = json.dumps(headers, ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(headers, ensure_ascii=False, cls=JSONEncoder)
         self.context['request']['Header'] = text
         self.console.debug('RequestHeader: %s', text)
 
     def set_request_params(self, params):
-        text = json.dumps(params, ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(params, ensure_ascii=False, cls=JSONEncoder)
         self.context['request']['Params'] = text
         self.console.debug('RequestParams: %s', text)
 
     def set_response_headers(self, headers):
-        text = json.dumps(headers, ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(headers, ensure_ascii=False, cls=JSONEncoder)
         self.context['response']['Header'] = text
         self.console.debug('ResponseHeader: %s', text)
 
@@ -413,7 +419,7 @@ class HTTPTracker(Tracker):
         else:
             self.set_context_level(logging.INFO)
 
-        text = json.dumps(data, ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(data, ensure_ascii=False, cls=JSONEncoder)
         self.context['response']['Data'] = text
         self.console.debug('ResponseData: %s', text)
 
@@ -439,13 +445,13 @@ class HTTPTracker(Tracker):
     def set_user(self, user):
         if user:
             self.context['user'] = user
-        text = json.dumps(self.context['user'], ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(self.context['user'], ensure_ascii=False, cls=JSONEncoder)
         self.console.debug('User: %s' % text)
 
     def set_operator(self, operator):
         if operator:
             self.context['operator'] = operator
-        text = json.dumps(self.context['operator'], ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(self.context['operator'], ensure_ascii=False, cls=JSONEncoder)
         self.console.debug('Operator: %s' % text)
 
     def get_message(self, session):
@@ -455,8 +461,8 @@ class HTTPTracker(Tracker):
             "logger_name": self.name,
             "trace_id": self.trace_id,
             "thread_name": threading.current_thread().getName(),
-            "app": settings.APP_NAME,
-            "env_name": os.getenv('ENV_NAME', ''),
+            # "app": settings.APP_NAME,
+            # "env_name": os.getenv('ENV_NAME', ''),
             "hostname": socket.gethostname(),
             "host_ip": socket.gethostbyname(socket.gethostname()),
             "with_context": session.with_context,
@@ -497,7 +503,7 @@ class TaskTracker(Tracker):
 
     def set_task_params(self, params):
         params = deepcopy(params)
-        text = json.dumps(params, ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(params, ensure_ascii=False, cls=JSONEncoder)
         self.context['execution']['Params'] = text
 
         text = 'task %s.%s received %s' % (
@@ -512,7 +518,7 @@ class TaskTracker(Tracker):
 
     def set_task_data(self, data):
         data = deepcopy(data)
-        text = json.dumps(data, ensure_ascii=False, cls=CustomJsonEncoder)
+        text = json.dumps(data, ensure_ascii=False, cls=JSONEncoder)
         self.context['execution']['Data'] = text
 
         self.console.debug('TaskData: %s' % self.context['execution']['Data'])
@@ -541,8 +547,8 @@ class TaskTracker(Tracker):
             "trace_id": self.trace_id,
             "thread_name": threading.current_thread().getName(),
             # "level_value": None,
-            "app": settings.APP_NAME,
-            "env_name": os.getenv('ENV_NAME', ''),
+            # "app": settings.APP_NAME,
+            # "env_name": os.getenv('ENV_NAME', ''),
             "hostname": socket.gethostname(),
             "host_ip": socket.gethostbyname(socket.gethostname()),
             "with_context": session.with_context,

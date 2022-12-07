@@ -1,3 +1,4 @@
+import logging
 import sys
 
 from rest_framework import serializers
@@ -182,12 +183,12 @@ class ParamsWrappedController(APIController):
         res_data = {'code': code, 'message': message}
         if isinstance(res, (dict, list, str)):
             res_data['data'] = res
-        elif isinstance(res, (serializers.Serializer, serializers.ListSerializer)):
-            res_data['data'] = res.data
         elif isinstance(res, (PaginationListSerializer, ModelLessPaginationSerializer)):
             res_data['data'] = res.data['rows']
             if res.data['total'] is not None:
                 res_data['total'] = res.data['total']
+        elif isinstance(res, (serializers.Serializer, serializers.ListSerializer)):
+            res_data['data'] = res.data
 
         return res_data
 
@@ -216,7 +217,8 @@ class ParamsWrappedController(APIController):
         to be override, on process error
         :return:
         """
-        pass
+        if not isinstance(error, errors.APIError):
+            logging.getLogger('django.server').exception(error)
 
     def before_response(self):
         """

@@ -6,11 +6,11 @@ class APICode(object):
 
     SUCCESS = (200, ('SUCCESS', '成功'))
     PARAM_ERROR = (400, ('Invalid Params', '参数错误'))
-    ACCESS_FORBIDDEN = (4003, 'Access Forbidden', '您没有权限进行操作')
-    RESOURCE_NOT_EXIST = (404, 'Resource Not Exist', '资源不存在')
-    OPERATION_NOT_ALLOWED = (4005, 'Operation Not Allowed', '操作不被允许')
-    RESOURCE_ALREADY_EXIST = (409, 'Resource Already Exist', '资源已存在')
-    FIELD_OCCUPIED = (4009, 'Field Occupied', '字段被占用')
+    ACCESS_FORBIDDEN = (4003, ('Access Forbidden', '您没有权限进行操作'))
+    RESOURCE_NOT_EXIST = (404, ('Resource Not Exist', '资源不存在'))
+    OPERATION_NOT_ALLOWED = (4005, ('Operation Not Allowed', '操作不被允许'))
+    RESOURCE_ALREADY_EXIST = (409, ('Resource Already Exist', '资源已存在'))
+    FIELD_OCCUPIED = (4009, ('Field Occupied', '字段被占用'))
     INTERNAL_SERVER_ERROR = (500, ('Internal Server Error', '服务器内部错误'))
 
     @classmethod
@@ -29,6 +29,9 @@ class Error(Exception):
             self.extra = extra
         else:
             self.extra = {}
+
+    def __str__(self):
+        return str(self.__class__)
 
 
 class APIError(Error):
@@ -57,11 +60,11 @@ class ResourceNotExist(APIError):
 
     api_code = APICode.RESOURCE_NOT_EXIST
 
-    def __init__(self, name=None, **kwargs):
+    def __init__(self, content=None, **kwargs):
         super().__init__(self, **kwargs)
 
-        if name:
-            self.message = '%s: %s' % (self.message, name)
+        if content:
+            self.message = '%s: %s' % (self.message, content)
 
 
 class ResourceAlreadyExist(APIError):
@@ -71,11 +74,11 @@ class ResourceAlreadyExist(APIError):
 
     api_code = APICode.RESOURCE_ALREADY_EXIST
 
-    def __init__(self, name=None, **kwargs):
+    def __init__(self, content=None, **kwargs):
         super().__init__(self, **kwargs)
 
-        if name:
-            self.message = '%s: %s' % (self.message, name)
+        if content:
+            self.message = '%s: %s' % (self.message, content)
 
 
 class AccessForbidden(APIError):
@@ -99,11 +102,11 @@ class OperationNotAllowed(APIError):
 
     api_code = APICode.OPERATION_NOT_ALLOWED
 
-    def __init__(self, name=None, **kwargs):
+    def __init__(self, content=None, **kwargs):
         super().__init__(self, **kwargs)
 
-        if name:
-            self.message = '%s: %s' % (self.message, name)
+        if content:
+            self.message = '%s: %s' % (self.message, content)
 
 
 class FieldOccupied(APIError):
@@ -113,11 +116,11 @@ class FieldOccupied(APIError):
 
     api_code = APICode.FIELD_OCCUPIED
 
-    def __init__(self, name=None, **kwargs):
+    def __init__(self, content=None, **kwargs):
         super().__init__(self, **kwargs)
 
-        if name:
-            self.message = '%s: %s' % (self.message, name)
+        if content:
+            self.message = '%s: %s' % (self.message, content)
 
 
 class InternalServerError(Error):

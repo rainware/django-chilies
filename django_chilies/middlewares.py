@@ -6,7 +6,7 @@ from django.urls import resolve
 from django.utils.deprecation import MiddlewareMixin
 
 from . import trackers
-from .settings import TRACKER_DEFAULT
+from .settings import DEFAULT
 from .trackers import HTTPTracker
 from .utils import generate_uuid, headers_dict
 
@@ -33,7 +33,7 @@ class TrackerMiddleware(MiddlewareMixin):
         trace_id = self.get_trace_id(request)
 
         # 实例化http tracker
-        tracker_name = settings.DJANGO_CHILIES_TRACKER.get('http_tracker') or TRACKER_DEFAULT['http_tracker']
+        tracker_name = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('http_tracker') or DEFAULT['TRACKER']['http_tracker']
         request.tracker: HTTPTracker = trackers.instance_from_settings(tracker_name, trace_id=trace_id)
         assert isinstance(request.tracker, HTTPTracker)
         request.tracker.set_request_id(request.id)
@@ -68,7 +68,8 @@ class TrackerMiddleware(MiddlewareMixin):
         :return:
         """
         try:
-            url_name = (url := resolve(request.path)).url_name
+            url = resolve(request.path)
+            url_name = url.url_name
             url_namespace = url.namespace
         except:
             url_name = None

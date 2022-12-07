@@ -4,8 +4,13 @@ from operator import attrgetter
 from compositefk.fields import CompositeForeignKey
 from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models, transaction, router
-from django.db.models import QuerySet, sql, signals, ForeignObjectRel, ManyToManyField, DateTimeField, TimeField, \
+from django.db.models import QuerySet, sql, signals, ManyToManyField, DateTimeField, TimeField, \
     ProtectedError, Func
+# django版本兼容
+if hasattr(models, 'ForeignObjectRel'):
+    from django.db.models import ForeignObjectRel
+else:
+    ForeignObjectRel = type('ForeignObjectRel', (object, ), {})
 from django.db.models.deletion import Collector
 from django.db.models.fields.related import RelatedField
 from django.utils import timezone
@@ -14,8 +19,7 @@ from rest_framework import serializers
 from . import errors
 from .serializers import ModelPaginationSerializer, ModelPaginationSerializerWithoutCount, \
     SerializerTimeFieldWithZone
-from .consts import DATETIME_FORMAT, TIME_FORMAT
-from .utils import time_to_current_timezone, time_from_current_timezone
+from .utils import time_to_current_timezone, time_from_current_timezone, DATETIME_FORMAT, TIME_FORMAT
 
 
 def get_or_none(model_cls, kwargs, raise_error=False):
@@ -189,6 +193,8 @@ class FakeDeleteCollector(Collector):
 
 
 class ModelWrapper(models.Model):
+    sensitive_fields = []
+
     @classmethod
     def serializer_class(cls, include=None, related=None, extra=None, exclude=None,
                          include_sensitive=None,
@@ -224,7 +230,8 @@ class ModelWrapper(models.Model):
                 continue
             if include and f.name not in include:
                 continue
-            if sensitive_fields := getattr(cls, 'sensitive_fields', None):
+            sensitive_fields = getattr(cls, 'sensitive_fields', None)
+            if sensitive_fields:
                 if (f.name in sensitive_fields) and (f.name not in (include_sensitive or [])):
                     continue
 
