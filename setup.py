@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="django-chilies",
-    version="0.0.1-alpha-3",
+    version="0.0.1-alpha-5",
     author="rainware",
     author_email="kevin90116@gmail.com",
     description="to make django more delicious",

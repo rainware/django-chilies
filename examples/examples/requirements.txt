@@ -1,2 +1,0 @@
-django-chilies
-redis>=3.5.3
