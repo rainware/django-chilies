@@ -1,7 +1,7 @@
 import logging
 
 from django_chilies import errors
-from django_chilies.controllers import TrackedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 from rest_framework import serializers
 
 from bookstore.models import Author, Book
@@ -11,6 +11,8 @@ from django_chilies.serializers import BlankableIntegerField
 
 from django_chilies.utils import exception_transfer
 from libs.errors import DingServiceError, ding_operator
+
+from libs.controllers import BaseController
 
 
 class RequestSerializer(serializers.Serializer):
@@ -28,7 +30,7 @@ ResponseSerializer = Book.serializer_class(
 )
 
 
-class ListBooksController(TrackedController):
+class ListBooksController(BaseController):
     method = 'GET'
     request_serializer_cls = RequestSerializer
     response_serializer_cls = ResponseSerializer

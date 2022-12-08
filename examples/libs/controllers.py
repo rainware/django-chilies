@@ -1,7 +1,7 @@
-from django_chilies.controllers import TrackedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 
 
-class BaseController(TrackedController):
+class BaseController(APIController, ParamsMixin, TrackerMixin):
     """
     """
 
@@ -9,6 +9,7 @@ class BaseController(TrackedController):
         """
         :return:
         """
+        super().before_process()
         # 校验通用参数
 
         # 校验权限
@@ -17,14 +18,19 @@ class BaseController(TrackedController):
         """
         :return:
         """
+        super().on_success()
 
-    def on_error(self, error=None):
+    def on_error(self, error):
         """
         :param error:
         :return:
         """
+        error = super().on_error(error)
+
+        return error
 
     def before_response(self):
         """
         :return:
         """
+        super().before_response()

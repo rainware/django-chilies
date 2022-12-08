@@ -1,4 +1,4 @@
-from django_chilies.controllers import TrackedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 from rest_framework import serializers
 
 from bookstore.models import Author, Book
@@ -12,7 +12,7 @@ class RequestSerializer(serializers.Serializer):
 ResponseSerializer = Book.serializer_class(include=['id'])
 
 
-class CreateBookController(TrackedController):
+class CreateBookController(APIController, ParamsMixin, TrackerMixin):
     method = 'POST'
     request_serializer_cls = RequestSerializer
     response_serializer_cls = ResponseSerializer

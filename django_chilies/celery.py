@@ -2,12 +2,11 @@ import os
 import time
 import functools
 from celery import Task
-from django.conf import settings
 
 from . import trackers
-from .settings import DEFAULT
+from .settings import get_task_tracker_fmts, get_task_tracker_config
 from .trackers import TaskTracker
-from .utils import generate_uuid
+from .utils import generate_uuid, deepcopy
 
 app = None
 
@@ -35,16 +34,18 @@ def task_tracker():
         def __dec(*args, **kwargs):
             s_time = time.time()
             # 实例化task tracker
-            tracker_name = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('task_tracker') or DEFAULT['TRACKER']['task_tracker']
-            tracker: TaskTracker = trackers.instance_from_settings(tracker_name)
+            tracker_config = get_task_tracker_config()
+            tracker: TaskTracker = trackers.instance_from_settings(tracker_config['tracker'])
             assert isinstance(tracker, TaskTracker)
             bind_task = False
             trace_id = None
+            headers = None
             if args and isinstance(args[0], Task):
+                headers = args[0].request.headers
                 bind_task = True
                 task_id = args[0].request.id
-                if args[0].request.headers:
-                    trace_id = args[0].request.headers.get('_trace_id', task_id)
+                if headers:
+                    trace_id = headers.get('_trace_id', task_id)
             else:
                 task_id = generate_uuid(s_time, uppercase=False, length=32)
             trace_id = trace_id or task_id
@@ -56,20 +57,29 @@ def task_tracker():
                     'module': func.__module__,
                     'filename': os.path.normcase(func.__code__.co_filename),
                 })
-                tracker.set_task_params({
-                    'args': args[1:] if bind_task else args,
-                    'kwargs': kwargs
-                })
+                if headers is not None:
+                    fmts = get_task_tracker_fmts('execution.header', tracker_config)
+                    if fmts:
+                        tracker.set_task_headers(deepcopy(headers), formats=fmts)
+                fmts = get_task_tracker_fmts('execution.params', tracker_config)
+                if fmts:
+                    tracker.set_task_params(deepcopy({
+                        'args': args[1:] if bind_task else args,
+                        'kwargs': kwargs
+                    }), formats=fmts)
                 if bind_task:
                     args[0].tracker = tracker
                 else:
                     kwargs['tracker'] = tracker
                 res = func(*args, **kwargs)
-            except:
-                tracker.set_error()
+            except Exception as e:
+                tracker.set_error(e)
                 raise
             else:
-                tracker.set_task_data(res)
+                if res is not None:
+                    fmts = get_task_tracker_fmts('execution.data', tracker_config)
+                    if fmts:
+                        tracker.set_task_data(deepcopy(res), formats=fmts)
             finally:
                 e_time = time.time()
                 tracker.set_task_result({

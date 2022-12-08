@@ -9,8 +9,7 @@ from functools import wraps
 from json import JSONEncoder as JEncoder
 
 import pytz
-from django.conf import settings
-from .settings import DEFAULT
+from .settings import get_json_encoder
 from django.forms.utils import to_current_timezone, from_current_timezone
 from rest_framework.renderers import JSONRenderer as JRenderer
 
@@ -47,7 +46,7 @@ class _JSONEncoder(JEncoder):
         return super().default(obj)
 
 
-je_cname = getattr(settings, 'DJANGO_CHILIES', {}).get('JSON_ENCODER') or DEFAULT['JSON_ENCODER']
+je_cname = get_json_encoder()
 if je_cname == 'django_chilies.utils.JSONEncoder':
     JSONEncoder = _JSONEncoder
 else:

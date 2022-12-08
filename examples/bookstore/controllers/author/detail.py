@@ -1,12 +1,12 @@
 
 from bookstore.models import Author
 
-from django_chilies.controllers import ParamsWrappedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 
 ResponseSerializer = Author.serializer_class()
 
 
-class GetAuthorDetailController(ParamsWrappedController):
+class GetAuthorDetailController(APIController, ParamsMixin):
     method = 'GET'
 
     response_serializer_cls = ResponseSerializer

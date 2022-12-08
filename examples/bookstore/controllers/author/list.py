@@ -1,7 +1,7 @@
 import logging
 
 from django_chilies import errors
-from django_chilies.controllers import ParamsWrappedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 from rest_framework import serializers
 
 from bookstore.models import Author
@@ -18,7 +18,7 @@ class RequestSerializer(serializers.Serializer):
 ResponseSerializer = Author.serializer_class(paging=True)
 
 
-class ListAuthorsController(ParamsWrappedController):
+class ListAuthorsController(APIController, ParamsMixin):
     method = 'GET'
     request_serializer_cls = RequestSerializer
     response_serializer_cls = ResponseSerializer
@@ -33,7 +33,7 @@ class ListAuthorsController(ParamsWrappedController):
             filters['name__icontains'] = self.params.get('q')
 
         rs = Author.filter(**filters)
-
+        # 1/0
         return ResponseSerializer(
             rs,
             offset=self.params['offset'],
@@ -45,6 +45,3 @@ class ListAuthorsController(ParamsWrappedController):
         #     'total': 1
         # })
 
-    def on_error(self, error):
-        if not isinstance(error, errors.APIError):
-            logging.getLogger('django.server').exception(error)

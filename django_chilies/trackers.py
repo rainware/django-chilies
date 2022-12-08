@@ -8,18 +8,17 @@ import threading
 import traceback
 from copy import deepcopy
 
-from django.conf import settings
-
 from . import writers
-from .settings import DEFAULT
+from .settings import get_trackers_config, get_default_level, get_default_buffer_size, get_default_console, get_base_dir
 from .utils import JSONEncoder, generate_uuid, get_func
 
 sys_logger = logging.getLogger('django')
 
-trackers_config = dict(DEFAULT['TRACKER']['trackers'], **getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('trackers', {}))
-default_buffer_size = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('buffer_size') or DEFAULT['TRACKER']['buffer_size']
-default_level = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('level') or DEFAULT['TRACKER']['level']
-default_console = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('console') or DEFAULT['TRACKER']['console']
+trackers_config = get_trackers_config()
+default_buffer_size = get_default_buffer_size()
+default_level = get_default_level()
+default_console = get_default_console()
+base_dir = get_base_dir()
 
 
 def get_level_name(level):
@@ -120,7 +119,9 @@ class Logger(object):
         return '[%s] %s %s:%s: [line:%s] %s' % (
             datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')[:-4],
             level,
-            os.path.relpath(co_filename, settings.BASE_DIR),
+            # os.path.relpath(co_filename, base_dir),
+            # co_filename.replace(base_dir, ''),
+            co_filename,
             co_name,
             func_lineno,
             content
@@ -363,18 +364,24 @@ class HTTPTracker(Tracker):
             'url': None,
             'url_name': None,
             'url_namespace': None,
-            'query_string': None
+            'query_string': None,
+            'duration': None
         }, request={
             'id': None,
+            'header': None,
             'Header': None,
-            'Params': None
+            'Body': None,
+            'params': None,
+            'Params': None,
         }, response={
+            'header': None,
             'Header': None,
-            'Data': None
+            'data': None,
+            'Data': None,
+            'Body': None
         }, api={
             'code': None,
             'message': None,
-            'duration': None
         }, user={}, operator={}))
 
     def set_request_id(self, _id):
@@ -394,22 +401,35 @@ class HTTPTracker(Tracker):
         )
         self.console.info(text)
 
-    def set_request_headers(self, headers):
+    def set_request_headers(self, headers, formats=['json', 'text']):
         text = json.dumps(headers, ensure_ascii=False, cls=JSONEncoder)
-        self.context['request']['Header'] = text
+        if 'json' in formats:
+            self.context['request']['header'] = headers
+        if 'text' in formats:
+            self.context['request']['Header'] = text
         self.console.debug('RequestHeader: %s', text)
 
-    def set_request_params(self, params):
+    def set_request_body(self, body):
+        self.context['request']['Body'] = body
+        self.console.debug('RequestBody: %s', body)
+
+    def set_request_params(self, params, formats=['json', 'text']):
         text = json.dumps(params, ensure_ascii=False, cls=JSONEncoder)
-        self.context['request']['Params'] = text
+        if 'json' in formats:
+            self.context['request']['params'] = params
+        if 'text' in formats:
+            self.context['request']['Params'] = text
         self.console.debug('RequestParams: %s', text)
 
-    def set_response_headers(self, headers):
+    def set_response_headers(self, headers, formats=['json', 'text']):
         text = json.dumps(headers, ensure_ascii=False, cls=JSONEncoder)
-        self.context['response']['Header'] = text
+        if 'json' in formats:
+            self.context['response']['header'] = headers
+        if 'text' in formats:
+            self.context['response']['Header'] = text
         self.console.debug('ResponseHeader: %s', text)
 
-    def set_response_data(self, data):
+    def set_response_data(self, data, formats=['json', 'text']):
         self.context['api']['code'] = data.get('code')
         self.context['api']['message'] = data.get('message')
         if str(data['code']).startswith('5'):
@@ -420,17 +440,24 @@ class HTTPTracker(Tracker):
             self.set_context_level(logging.INFO)
 
         text = json.dumps(data, ensure_ascii=False, cls=JSONEncoder)
-        self.context['response']['Data'] = text
+        if 'json' in formats:
+            self.context['response']['data'] = data
+        if 'text' in formats:
+            self.context['response']['Data'] = text
         self.console.debug('ResponseData: %s', text)
 
+    def set_response_body(self, body):
+        self.context['response']['Body'] = body
+        self.console.debug('ResponseBody: %s', body)
+
     def set_http_result(self, info):
-        self.context['api']['duration'] = info.get('duration')
+        self.context['http']['duration'] = info.get('duration')
         self.context['http']['status_code'] = info.get('status_code')
         text = '%s %s %.1fms %s %s %s' % (
             self.context['http']['method'],
             self.context['http']['url'] if not self.context['http']['query_string'] else '%s?%s' % (
                 self.context['http']['url'], self.context['http']['query_string']),
-            self.context['api']['duration'],
+            self.context['http']['duration'],
             self.context['http']['status_code'],
             self.context['api']['code'],
             self.context['api']['message'])
@@ -490,7 +517,11 @@ class TaskTracker(Tracker):
             'filename': None,
         }, execution={
             'id': None,
+            'header': None,
+            'Header': None,
+            'params': None,
             'Params': None,
+            'data': None,
             'Data': None,
             'duration': None
         }))
@@ -501,27 +532,36 @@ class TaskTracker(Tracker):
         self.context['task']['module'] = info['module']
         self.context['task']['filename'] = info['filename']
 
-    def set_task_params(self, params):
-        params = deepcopy(params)
-        text = json.dumps(params, ensure_ascii=False, cls=JSONEncoder)
-        self.context['execution']['Params'] = text
-
-        text = 'task %s.%s received %s' % (
+        text = 'task %s.%s received' % (
             self.context['task']['module'],
             self.context['task']['name'],
-            self.context['execution']['Params']
         )
         self.console.info(text)
-
         self.console.debug('Execution ID: %s' % self.context['execution']['id'])
-        self.console.debug('TaskParams: %s' % self.context['execution']['Params'])
 
-    def set_task_data(self, data):
-        data = deepcopy(data)
+    def set_task_headers(self, headers, formats=['json', 'text']):
+        text = json.dumps(headers, ensure_ascii=False, cls=JSONEncoder)
+        if 'json' in formats:
+            self.context['execution']['header'] = headers
+        if 'text' in formats:
+            self.context['execution']['Header'] = text
+        self.console.debug('TaskHeaders: %s', text)
+
+    def set_task_params(self, params, formats=['json', 'text']):
+        text = json.dumps(params, ensure_ascii=False, cls=JSONEncoder)
+        if 'json' in formats:
+            self.context['execution']['params'] = params
+        if 'text' in formats:
+            self.context['execution']['Params'] = text
+        self.console.debug('TaskParams: %s' % text)
+
+    def set_task_data(self, data, formats=['json', 'text']):
         text = json.dumps(data, ensure_ascii=False, cls=JSONEncoder)
-        self.context['execution']['Data'] = text
-
-        self.console.debug('TaskData: %s' % self.context['execution']['Data'])
+        if 'json' in formats:
+            self.context['execution']['data'] = data
+        if 'text' in formats:
+            self.context['execution']['Data'] = text
+        self.console.debug('TaskData: %s' % text)
 
     def set_task_result(self, info):
         self.context['execution']['duration'] = info['duration']

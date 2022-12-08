@@ -1,7 +1,7 @@
 import logging
 
 from django_chilies import errors
-from django_chilies.controllers import TrackedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 from rest_framework import serializers
 
 from bookstore.models import Author, Book
@@ -12,7 +12,7 @@ class RequestSerializer(serializers.Serializer):
     author_id = serializers.IntegerField(required=False)
 
 
-class ModifyBookController(TrackedController):
+class ModifyBookController(APIController, ParamsMixin, TrackerMixin):
     method = 'PATCH'
     request_serializer_cls = RequestSerializer
 

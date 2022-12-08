@@ -3,12 +3,12 @@ import logging
 from django.db.models import ProtectedError
 
 from django_chilies import errors
-from django_chilies.controllers import ParamsWrappedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 
 from bookstore.models import Author
 
 
-class DeleteAuthorController(ParamsWrappedController):
+class DeleteAuthorController(APIController, ParamsMixin):
     method = 'DELETE'
 
     # 可以注释这两行看看效果
@@ -21,7 +21,3 @@ class DeleteAuthorController(ParamsWrappedController):
             author.delete()
         except ProtectedError as e:
             raise errors.OperationNotAllowed('delete related objects first')
-
-    def on_error(self, error):
-        if not isinstance(error, errors.APIError):
-            logging.getLogger('django.server').exception(error)

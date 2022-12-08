@@ -22,9 +22,9 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET_KEY = 'xdvo6ccz0+=)xkm%ve3b40nu#$v)fuu&gwqw2#s(i3j_ng5o0f'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['127.0.0.1']
 
 # Application definition
 
@@ -66,12 +66,20 @@ REST_FRAMEWORK = {  # add for examples
 
 DJANGO_CHILIES = {  # add for examples
     'JSON_ENCODER': 'django_chilies.utils.JSONEncoder',
+    'BASE_DIR': BASE_DIR,  # base path of django project
     'TRACKER': {
         'buffer_size': 1000,
         'level': 'INFO',
         'console': 'django',  # default console logger
-        'http_tracker': 'http-tracker',
-        'task_tracker': 'task-tracker',
+        'http_tracker': {
+            'tracker': 'http-tracker',
+            'request': ['header', 'Header', 'Body', 'params', 'Params'],
+            'response': ['header', 'Header', 'data', 'Data', 'Body']
+        },
+        'task_tracker': {
+            'tracker': 'task-tracker',
+            'execution': ['header', 'Header', 'params', 'Params', 'data', 'Data']
+        },
         'writers': {
             'kafka': {
                 'class': 'django_chilies.writers.KafkaWriter',
@@ -84,8 +92,9 @@ DJANGO_CHILIES = {  # add for examples
                 }
             },
             'console-writer': {
-                'class': 'django_chilies.writers.ConsoleWriter',
-                'level': 'INFO'
+                'class': 'django_chilies.writers.SystemWriter',
+                'level': 'INFO',
+                'redirect_stderr': True
             }
         },
         'trackers': {

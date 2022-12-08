@@ -1,14 +1,14 @@
 import functools
+import logging
 from time import time
 
-from django.conf import settings
 from django.urls import resolve
 from django.utils.deprecation import MiddlewareMixin
 
 from . import trackers
-from .settings import DEFAULT
+from .settings import get_http_tracker_config, get_http_tracker_fmts
 from .trackers import HTTPTracker
-from .utils import generate_uuid, headers_dict
+from .utils import generate_uuid, headers_dict, deepcopy
 
 
 def _request_task_apply_async(request, task, *args, **kwargs):
@@ -33,9 +33,10 @@ class TrackerMiddleware(MiddlewareMixin):
         trace_id = self.get_trace_id(request)
 
         # 实例化http tracker
-        tracker_name = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('http_tracker') or DEFAULT['TRACKER']['http_tracker']
-        request.tracker: HTTPTracker = trackers.instance_from_settings(tracker_name, trace_id=trace_id)
+        tracker_config = get_http_tracker_config()
+        request.tracker: HTTPTracker = trackers.instance_from_settings(tracker_config['tracker'], trace_id=trace_id)
         assert isinstance(request.tracker, HTTPTracker)
+        request.tracker_config = tracker_config
         request.tracker.set_request_id(request.id)
 
         # http info
@@ -43,7 +44,18 @@ class TrackerMiddleware(MiddlewareMixin):
         request.tracker.set_http_info(self.filter_tracked_http_info(request, http_info))
         # request headers
         request_headers = headers_dict(request.headers.__dict__['_store'])
-        request.tracker.set_request_headers(self.filter_tracked_request_headers(request, request_headers))
+        fmts = get_http_tracker_fmts('request.header', tracker_config)
+        if fmts:
+            request.tracker.set_request_headers(
+                self.filter_tracked_request_headers(request, request_headers),
+                formats=fmts
+            )
+        # request body
+        if get_http_tracker_fmts('request.body', tracker_config):
+            try:
+                request.tracker.set_request_body(self.filter_tracked_request_body(request, request.body.decode()))
+            except Exception as e:
+                logging.getLogger('django.server').exception(e)
 
         # celery tasks with request
         request.delay = functools.partial(_request_task_delay, request)
@@ -51,7 +63,21 @@ class TrackerMiddleware(MiddlewareMixin):
 
     def process_response(self, request, response):
         # response headers
-        request.tracker.set_response_headers(self.filter_tracked_response_headers(request, response, response._headers))
+        fmts = get_http_tracker_fmts('response.header', request.tracker_config)
+        if fmts:
+            request.tracker.set_response_headers(
+                self.filter_tracked_response_headers(request, response, headers_dict(response._headers)),
+                formats=fmts
+            )
+        # response body
+        if get_http_tracker_fmts('response.body', request.tracker_config):
+            try:
+                if not getattr(response, 'streaming', False):
+                    request.tracker.set_response_body(
+                        self.filter_tracked_response_body(request, response, response.content.decode())
+                    )
+            except Exception as e:
+                logging.getLogger('django.server').exception(e)
         # http result
         http_result = self.__get_http_result(request, response)
         request.tracker.set_http_result(self.filter_tracked_http_result(request, response, http_result))
@@ -114,17 +140,16 @@ class TrackerMiddleware(MiddlewareMixin):
         """
         return request.id
 
-    def filter_tracked_http_info(self, request, o):
+    def filter_tracked_http_info(self, request, o: dict) -> dict:
         """
         to be override
         :param request:
         :param o:
         :return:
         """
-
         return o
 
-    def filter_tracked_request_headers(self, request, o):
+    def filter_tracked_request_headers(self, request, o: dict) -> dict:
         """
         to be override, remove sensitive keys from headers dict
         :param request:
@@ -135,10 +160,18 @@ class TrackerMiddleware(MiddlewareMixin):
             o['Cookie'] = ''
         if 'Authorization' in o:
             o['Authorization'] = ''
-
         return o
 
-    def filter_tracked_response_headers(self, request, response, o):
+    def filter_tracked_request_body(self, request, o: str) -> str:
+        """
+        to be override, remove sensitive data from o
+        :param request:
+        :param o:
+        :return:
+        """
+        return o
+
+    def filter_tracked_response_headers(self, request, response, o: dict) -> dict:
         """
         to be override, remove sensitive keys from headers dict
         :param request:
@@ -148,10 +181,19 @@ class TrackerMiddleware(MiddlewareMixin):
         """
         if 'Set-Cookie' in o:
             o['Set-Cookie'] = ''
-
         return o
 
-    def filter_tracked_http_result(self, request, response, o):
+    def filter_tracked_response_body(self, request, response, o: str) -> str:
+        """
+        to be override, remove sensitive data from o
+        :param request:
+        :param response:
+        :param o:
+        :return:
+        """
+        return o
+
+    def filter_tracked_http_result(self, request, response, o: dict) -> dict:
         """
         to be override
         :param request:
@@ -159,5 +201,4 @@ class TrackerMiddleware(MiddlewareMixin):
         :param o:
         :return:
         """
-
         return o

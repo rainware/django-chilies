@@ -1,7 +1,7 @@
 import logging
 
 from django_chilies import errors
-from django_chilies.controllers import ParamsWrappedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 from rest_framework import serializers
 
 from bookstore.models import Author
@@ -15,7 +15,7 @@ class RequestSerializer(serializers.Serializer):
 ResponseSerializer = Author.serializer_class(include=['id'])
 
 
-class CreateAuthorController(ParamsWrappedController):
+class CreateAuthorController(APIController, ParamsMixin):
     method = 'POST'
     request_serializer_cls = RequestSerializer
     response_serializer_cls = ResponseSerializer
@@ -33,7 +33,3 @@ class CreateAuthorController(ParamsWrappedController):
         )
 
         return ResponseSerializer(author)
-
-    def on_error(self, error):
-        if not isinstance(error, errors.APIError):
-            logging.getLogger('django.server').exception(error)

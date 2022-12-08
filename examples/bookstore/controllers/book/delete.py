@@ -1,12 +1,12 @@
 import logging
 
 from django_chilies import errors
-from django_chilies.controllers import TrackedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 
 from bookstore.models import Book
 
 
-class DeleteBookController(TrackedController):
+class DeleteBookController(APIController, ParamsMixin, TrackerMixin):
     method = 'DELETE'
 
     # 可以注释这两行看看效果

@@ -2,14 +2,13 @@ import json
 import logging
 import sys
 
-from django.conf import settings
 from kafka import KafkaProducer
 
-from .settings import DEFAULT
+from .settings import get_writers_config, get_default_level
 from .utils import singleton_class, get_func, JSONEncoder
 
-writers_config = dict(DEFAULT['TRACKER']['writers'], **getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('writers', {}))
-default_level = getattr(settings, 'DJANGO_CHILIES', {}).get('TRACKER', {}).get('level') or DEFAULT['TRACKER']['level']
+writers_config = get_writers_config()
+default_level = get_default_level()
 
 
 def instance_from_settings(name):
@@ -62,15 +61,27 @@ class KafkaWriter(Writer):
         """
 
 
-class ConsoleWriter(Writer):
-    def __init__(self, level=None, *args, **kwargs):
+class SystemWriter(Writer):
+    def __init__(self, level=None, redirect_stderr=False, *args, **kwargs):
         super().__init__(level=level, *args, **kwargs)
+        self.redirect_stderr = redirect_stderr
 
     def write(self, o):
+        out = sys.stdout
+
         level = o.get('level')
-        if level and not self.is_enabled_for(level):
-            return
-        sys.stdout.write(json.dumps(o, indent=2, ensure_ascii=False, cls=JSONEncoder))
+        if level:
+            if not isinstance(level, int):
+                level = logging.getLevelName(level)
+            if not self.is_enabled_for(level):
+                return
+            if level >= logging.ERROR:
+                out = sys.stderr
+
+        if self.redirect_stderr:
+            out = sys.stdout
+        out.write(json.dumps(o, indent=2, ensure_ascii=False, cls=JSONEncoder))
 
     def flush(self):
         sys.stdout.flush()
+        sys.stderr.flush()

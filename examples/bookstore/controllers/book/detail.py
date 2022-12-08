@@ -1,7 +1,7 @@
 import logging
 
 from django_chilies import errors
-from django_chilies.controllers import TrackedController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 
 from bookstore.models import Author, Book
 
@@ -12,7 +12,7 @@ ResponseSerializer = Book.serializer_class(
 )
 
 
-class GetBookDetailController(TrackedController):
+class GetBookDetailController(APIController, ParamsMixin, TrackerMixin):
     method = 'GET'
 
     response_serializer_cls = ResponseSerializer

@@ -1,6 +1,6 @@
 from rest_framework.response import Response
 
-from django_chilies.controllers import APIController
+from django_chilies.controllers import APIController, ParamsMixin, TrackerMixin
 
 
 class TestController(APIController):
@@ -11,5 +11,5 @@ class TestController(APIController):
     view__permission_classes = []
 
     def process(self, *args, **kwargs):
-        b = self.params.get('a')
+        b = self.request.GET.get('a')
         return Response({'b': b})
