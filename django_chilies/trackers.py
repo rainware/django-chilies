@@ -12,7 +12,7 @@ from . import writers
 from .settings import get_trackers_config, get_default_level, get_default_buffer_size, get_default_console, get_base_dir
 from .utils import JSONEncoder, generate_uuid, get_func
 
-sys_logger = logging.getLogger('django')
+sys_logger = logging.getLogger('django.server')
 
 trackers_config = get_trackers_config()
 default_buffer_size = get_default_buffer_size()

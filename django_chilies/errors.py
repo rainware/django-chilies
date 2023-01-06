@@ -1,37 +1,44 @@
 import sys
+from django.utils.translation import gettext_lazy as _
 
 
-class APICode(object):
-    _MESSAGE_INDEX = 1
+class Code(object):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
 
-    SUCCESS = (200, ('SUCCESS', '成功'))
-    PARAM_ERROR = (400, ('Invalid Params', '参数错误'))
-    ACCESS_FORBIDDEN = (4003, ('Access Forbidden', '您没有权限进行操作'))
-    RESOURCE_NOT_EXIST = (404, ('Resource Not Exist', '资源不存在'))
-    OPERATION_NOT_ALLOWED = (4005, ('Operation Not Allowed', '操作不被允许'))
-    RESOURCE_ALREADY_EXIST = (409, ('Resource Already Exist', '资源已存在'))
-    FIELD_OCCUPIED = (4009, ('Field Occupied', '字段被占用'))
-    INTERNAL_SERVER_ERROR = (500, ('Internal Server Error', '服务器内部错误'))
+    def __eq__(self, other):
+        if isinstance(other, int):
+            return self.code == other
+        return self.code == other.code
 
-    @classmethod
-    def get(cls, item):
-        return item[0], item[1][cls._MESSAGE_INDEX]
+
+class APICodes(object):
+
+    SUCCESS = Code(200, _('Success'))
+    PARAM_ERROR = Code(400, _('Params Invalid'))
+    ACCESS_FORBIDDEN = Code(4003, _('Access Forbidden'))
+    RESOURCE_NOT_EXIST = Code(404, _('Resource Not Exist'))
+    OPERATION_NOT_ALLOWED = Code(4005, _('Operation Not Allowed'))
+    RESOURCE_ALREADY_EXIST = Code(409, _('Resource Already Exist'))
+    FIELD_OCCUPIED = Code(4009, _('Field Occupied'))
+    INTERNAL_SERVER_ERROR = Code(500, _('Internal Server Error'))
 
 
 class Error(Exception):
-    api_code = APICode.SUCCESS
+    CODE = APICodes.SUCCESS
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, content=None, *args, **kwargs):
+        self.code, self.message = self.CODE.code, self.CODE.message
+        if content:
+            self.message = '%s: %s' % (self.message, content)
         extra = kwargs.pop('extra', None)
-        super().__init__(*args, **kwargs)
-        self.code, self.message = APICode.get(self.api_code)
         if extra is not None:
             self.extra = extra
         else:
             self.extra = {}
 
-    def __str__(self):
-        return str(self.__class__)
+        super().__init__(self.message, *args, **kwargs)
 
 
 class APIError(Error):
@@ -45,12 +52,11 @@ class ParamError(APIError):
     参数错误 400
     """
 
-    api_code = APICode.PARAM_ERROR
+    CODE = APICodes.PARAM_ERROR
 
     def __init__(self, *fields, **kwargs):
-        super().__init__(self, **kwargs)
-        if fields:
-            self.message = '%s: %s' % (self.message, ','.join(fields))
+        content = ','.join(fields)
+        super().__init__(content, **kwargs)
 
 
 class ResourceNotExist(APIError):
@@ -58,13 +64,7 @@ class ResourceNotExist(APIError):
     404
     """
 
-    api_code = APICode.RESOURCE_NOT_EXIST
-
-    def __init__(self, content=None, **kwargs):
-        super().__init__(self, **kwargs)
-
-        if content:
-            self.message = '%s: %s' % (self.message, content)
+    CODE = APICodes.RESOURCE_NOT_EXIST
 
 
 class ResourceAlreadyExist(APIError):
@@ -72,13 +72,7 @@ class ResourceAlreadyExist(APIError):
     409
     """
 
-    api_code = APICode.RESOURCE_ALREADY_EXIST
-
-    def __init__(self, content=None, **kwargs):
-        super().__init__(self, **kwargs)
-
-        if content:
-            self.message = '%s: %s' % (self.message, content)
+    CODE = APICodes.RESOURCE_ALREADY_EXIST
 
 
 class AccessForbidden(APIError):
@@ -86,13 +80,7 @@ class AccessForbidden(APIError):
     4003
     """
 
-    api_code = APICode.ACCESS_FORBIDDEN
-
-    def __init__(self, target=None, **kwargs):
-        super().__init__(self, **kwargs)
-
-        if target:
-            self.message = '%s: %s' % (self.message, target)
+    CODE = APICodes.ACCESS_FORBIDDEN
 
 
 class OperationNotAllowed(APIError):
@@ -100,13 +88,7 @@ class OperationNotAllowed(APIError):
     4005
     """
 
-    api_code = APICode.OPERATION_NOT_ALLOWED
-
-    def __init__(self, content=None, **kwargs):
-        super().__init__(self, **kwargs)
-
-        if content:
-            self.message = '%s: %s' % (self.message, content)
+    CODE = APICodes.OPERATION_NOT_ALLOWED
 
 
 class FieldOccupied(APIError):
@@ -114,13 +96,7 @@ class FieldOccupied(APIError):
     4009
     """
 
-    api_code = APICode.FIELD_OCCUPIED
-
-    def __init__(self, content=None, **kwargs):
-        super().__init__(self, **kwargs)
-
-        if content:
-            self.message = '%s: %s' % (self.message, content)
+    CODE = APICodes.FIELD_OCCUPIED
 
 
 class InternalServerError(Error):
@@ -128,15 +104,14 @@ class InternalServerError(Error):
     服务器内部错误，5xx
     """
 
-    api_code = APICode.INTERNAL_SERVER_ERROR
+    CODE = APICodes.INTERNAL_SERVER_ERROR
 
     def __init__(self, *args, **kwargs):
         """
         """
-        # Exception.__init__(self, *args, **kwargs)
         super().__init__(*args, **kwargs)
-        e_type, e_value, e_trackback = sys.exc_info()
 
+        e_type, e_value, e_trackback = sys.exc_info()
         if e_type:
             self.extra['e_type'] = e_type.__name__
             self.extra['e_value'] = str(e_value)

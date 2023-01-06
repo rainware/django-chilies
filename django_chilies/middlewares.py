@@ -130,7 +130,7 @@ class TrackerMiddleware(MiddlewareMixin):
         :param request:
         :return:
         """
-        return request.META.get('HTTP_H_TRACE_ID') or generate_uuid(request.timer, uppercase=False, length=32)
+        return generate_uuid(request.timer, uppercase=False, length=32)
 
     def get_trace_id(self, request):
         """

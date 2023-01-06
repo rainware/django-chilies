@@ -29,7 +29,7 @@ DEFAULT = {
                     'value_serializer': lambda msg: json.dumps(msg, ensure_ascii=False).encode("utf-8"),
                 }
             },
-            'console': {
+            'system': {
                 'class': 'django_chilies.writers.SystemWriter',
                 'level': 'INFO',
                 'redirect_stderr': False
@@ -42,14 +42,14 @@ DEFAULT = {
                 'level': 'INFO',
                 'buffer_size': 1000,
                 'console': 'django',  # console logger
-                'writers': ['console']
+                'writers': ['system']
             },
             'task-tracker': {
                 'class': 'django_chilies.trackers.TaskTracker',
                 'level': 'INFO',
                 'buffer_size': 1000,
                 'console': 'django',  # console logger
-                'writers': ['console']
+                'writers': ['system']
             }
         }
     }

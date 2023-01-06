@@ -1,25 +1,15 @@
 from collections import Counter
 from operator import attrgetter
 
-from compositefk.fields import CompositeForeignKey
-from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models, transaction, router
-from django.db.models import QuerySet, sql, signals, ManyToManyField, DateTimeField, TimeField, \
+from django.db.models import QuerySet, sql, signals, TimeField, \
     ProtectedError, Func
-# django版本兼容
-if hasattr(models, 'ForeignObjectRel'):
-    from django.db.models import ForeignObjectRel
-else:
-    ForeignObjectRel = type('ForeignObjectRel', (object, ), {})
 from django.db.models.deletion import Collector
-from django.db.models.fields.related import RelatedField
 from django.utils import timezone
-from rest_framework import serializers
 
 from . import errors
-from .serializers import ModelPaginationSerializer, ModelPaginationSerializerWithoutCount, \
-    SerializerTimeFieldWithZone
-from .utils import time_to_current_timezone, time_from_current_timezone, DATETIME_FORMAT, TIME_FORMAT
+from .serializers import model_serializer_class
+from .utils import time_to_current_timezone, time_from_current_timezone
 
 
 def get_or_none(model_cls, kwargs, raise_error=False):
@@ -199,85 +189,8 @@ class ModelWrapper(models.Model):
     def serializer_class(cls, include=None, related=None, extra=None, exclude=None,
                          include_sensitive=None,
                          include_display_fields=True, include_delete_fields=False, paging=False, count=True):
-        """
-        :param include: list, 包含的字段
-        :param related: dict, {field_name: serializer.Serializer()}, for ForeignKey/OneToOne/ManyToMany fields
-        :param extra: dict, {field_name: serializer.SerializerMethodField()}, 非model字段
-        :param exclude: list, 例外的字段
-        :param include_sensitive: list, 包含的敏感字段，如果不设置，默认不返回敏感字段
-        :param include_display_fields: bool, 是否display choice fields
-        :param include_delete_fields: bool, 是否包含假删除字段
-        :param paging: bool, 是否分页
-        :param count: bool, paging为true时，是否计算总数。如果不计算，则返回的total值为None
-        :return:
-        """
-
-        parent_slr = serializers.ModelSerializer
-        if paging:
-            if not count:
-                parent_slr = ModelPaginationSerializerWithoutCount
-            else:
-                parent_slr = ModelPaginationSerializer
-
-        class SLR(parent_slr):
-
-            class Meta:
-                model = cls
-
-        fs = []
-        for f in cls._meta.get_fields():
-            if exclude and f.name in exclude:
-                continue
-            if include and f.name not in include:
-                continue
-            sensitive_fields = getattr(cls, 'sensitive_fields', None)
-            if sensitive_fields:
-                if (f.name in sensitive_fields) and (f.name not in (include_sensitive or [])):
-                    continue
-
-            # fields for fake delete
-            if not include_delete_fields and f.name in ('deleted', 'deleter', 'delete_time'):
-                continue
-
-            # relations
-            if isinstance(f, (RelatedField, ForeignObjectRel, CompositeForeignKey)):
-                if related and f.name in related:
-                    setattr(SLR, f.name, related[f.name])
-                    SLR._declared_fields[f.name] = related[f.name]
-                else:
-                    if isinstance(f, (ForeignObjectRel, ManyToManyField, CompositeForeignKey, GenericRelation)):
-                        # many to many relations & reverse relations ignored by default
-                        continue
-            fs.append(f.name)
-
-            # 日期field
-            if isinstance(f, DateTimeField):
-                setattr(SLR, f.name, serializers.DateTimeField(format=DATETIME_FORMAT))
-                SLR._declared_fields[f.name] = getattr(SLR, f.name)
-
-            if isinstance(f, TimeField):
-                setattr(SLR, f.name, SerializerTimeFieldWithZone(format=TIME_FORMAT))
-                SLR._declared_fields[f.name] = getattr(SLR, f.name)
-
-            # choice field
-            f_display = None
-            if getattr(f, 'choices', None) and include_display_fields:
-                f_display = '%s_display' % f.name
-            if f_display and not ((exclude and f_display in exclude) or (include and f_display not in include)):
-                setattr(SLR, f_display, serializers.CharField(source='get_%s' % f_display))
-                SLR._declared_fields[f_display] = getattr(SLR, f_display)
-                fs.append(f_display)
-
-        if extra:
-            for fname, get_func in extra.items():
-                setattr(SLR, fname, serializers.SerializerMethodField())
-                setattr(SLR, 'get_%s' % fname, get_func)
-                SLR._declared_fields[fname] = getattr(SLR, fname)
-                fs.append(fname)
-
-        SLR.Meta.fields = fs
-
-        return SLR
+        return model_serializer_class(cls, include, related, extra, exclude, include_sensitive,
+                                      include_display_fields, include_delete_fields, paging, count)
 
     @classmethod
     def serializer(cls, instance=None, include=None, related=None, extra=None, exclude=None, include_sensitive=None,
@@ -355,6 +268,9 @@ class ModelWrapper(models.Model):
     @classmethod
     def bulk_create(cls, *args, **kwargs):
         return cls.objects.bulk_create(*args, **kwargs)
+
+    def serialized_data(self, fields=None):
+        return self.serializer(self, fields=fields).data
 
     def update(self, _refresh=True, **kwargs):
         kwargs['update_time'] = timezone.now()

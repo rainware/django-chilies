@@ -9,6 +9,9 @@ from functools import wraps
 from json import JSONEncoder as JEncoder
 
 import pytz
+from django.utils.encoding import force_text
+from django.utils.functional import Promise
+
 from .settings import get_json_encoder
 from django.forms.utils import to_current_timezone, from_current_timezone
 from rest_framework.renderers import JSONRenderer as JRenderer
@@ -42,6 +45,8 @@ class _JSONEncoder(JEncoder):
             return obj.strftime(self.DATE_FORMAT)
         if isinstance(obj, datetime.time):
             return obj.strftime(self.TIME_FORMAT)
+        if isinstance(obj, Promise):
+            return force_text(obj)
 
         return super().default(obj)
 

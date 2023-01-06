@@ -1,5 +1,4 @@
 import logging
-import sys
 
 from rest_framework import serializers
 from rest_framework.exceptions import MethodNotAllowed
@@ -7,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import errors
-from .errors import APICode
+from .errors import APICodes
 from .serializers import PaginationListSerializer, ModelLessPaginationSerializer
 from .settings import get_http_tracker_fmts
 from .trackers import HTTPTracker
@@ -63,34 +62,32 @@ class ControllerMixin(object):
         :param kwargs:
         """
 
-    def before_process(self):
+    def before_process(self, *args, **kwargs):
         """
         to be override, before process
         :return:
         """
 
-    def on_success(self):
+    def on_success(self, *args, **kwargs):
         """
         to be override, on process success
         :return:
         """
-        pass
 
-    def on_error(self, error: Exception) -> Exception:
+    def on_error(self, error: Exception, *args, **kwargs) -> Exception:
         """
         to be override, on process error
         :return: return None if error are handled, else Exception
         """
 
-    def before_response(self):
+    def before_response(self, *args, **kwargs):
         """
         to be override, before response returned to view
         :return:
         """
-        pass
 
     @classmethod
-    def trace_error(cls, error):
+    def exception(cls, error):
         logging.getLogger('django.server').exception(error)
 
 
@@ -151,48 +148,48 @@ class APIController(ControllerMixin):
 
     def _process(self, *args, **kwargs):
         try:
-            self.before_process()
+            self.before_process(*args, **kwargs)
             self.response = self.process(*args, **kwargs)
         except Exception as e:
-            error = self.on_error(e)
+            error = self.on_error(e, *args, **kwargs)
             if error:
                 raise
         else:
-            self.on_success()
+            self.on_success(*args, **kwargs)
 
-        self.before_response()
+        self.before_response(*args, **kwargs)
         return self.response
 
-    def before_process(self):
+    def before_process(self, *args, **kwargs):
         """
         to be override, before process
         :return:
         """
-        super().before_process()
+        super().before_process(*args, **kwargs)
 
-    def on_success(self):
+    def on_success(self, *args, **kwargs):
         """
         to be override, on process success
         :return:
         """
-        super().on_success()
+        super().on_success(*args, **kwargs)
 
-    def on_error(self, error: Exception) -> Exception:
+    def on_error(self, error: Exception, *args, **kwargs) -> Exception:
         """
         to be override, on process error
         :return:
         """
-        error = super().on_error(error)
+        error = super().on_error(error, *args, **kwargs)
         if error:
-            self.trace_error(error)
+            self.exception(error)
         return error
 
-    def before_response(self):
+    def before_response(self, *args, **kwargs):
         """
         to be override, before response returned to view
         :return:
         """
-        super().before_response()
+        super().before_response(*args, **kwargs)
 
         if self.response is None:
             self.response = Response(status=500)
@@ -212,7 +209,7 @@ class ParamsMixin(ControllerMixin):
 
         super().__init__(*args, **kwargs)
 
-    def before_process(self):
+    def before_process(self, *args, **kwargs):
         """
         to be override, before process
         :return:
@@ -222,17 +219,17 @@ class ParamsMixin(ControllerMixin):
         if param_errors:
             raise errors.ParamError(*list(param_errors.keys()))
 
-        super().before_process()
+        super().before_process(*args, **kwargs)
 
-    def on_success(self):
+    def on_success(self, *args, **kwargs):
         """
         to be override, on process success
         :return:
         """
         self.data = self._generate_data(self.response)
-        super().on_success()
+        super().on_success(*args, **kwargs)
 
-    def on_error(self, error: Exception) -> Exception:
+    def on_error(self, error: Exception, *args, **kwargs) -> Exception:
         """
         to be override, on process error
         :return:
@@ -246,23 +243,23 @@ class ParamsMixin(ControllerMixin):
         else:
             self.data = self._generate_data_by_error(errors.InternalServerError())
 
-        error = super().on_error(error)
+        error = super().on_error(error, *args, **kwargs)
         if not error:
             trace = False
 
         if trace:
-            self.trace_error(error)
+            self.exception(error)
 
         return error
 
-    def before_response(self):
+    def before_response(self, *args, **kwargs):
         """
         to be override, before response returned to view
         :return:
         """
 
         self.response = Response(self.data)
-        super().before_response()
+        super().before_response(*args, **kwargs)
 
     def __parse_params(self):
         """
@@ -288,7 +285,7 @@ class ParamsMixin(ControllerMixin):
         return {}
 
     def _generate_data(self, res):
-        code, message = APICode.get(APICode.SUCCESS)
+        code, message = APICodes.SUCCESS.code, APICodes.SUCCESS.message
         res_data = {'code': code, 'message': message}
         if isinstance(res, (dict, list, str)):
             res_data['data'] = res
@@ -315,7 +312,7 @@ class TrackerMixin(ControllerMixin):
 
         super().__init__(*args, **kwargs)
 
-    def before_process(self):
+    def before_process(self, *args, **kwargs):
         if hasattr(self, 'unvalidated_params'):
             fmts = get_http_tracker_fmts('request.params', self.request.tracker_config)
             if fmts:
@@ -323,25 +320,30 @@ class TrackerMixin(ControllerMixin):
                     self.filter_tracked_params(self.unvalidated_params),
                     formats=fmts
                 )
-        self.tracker.set_user(self.get_tracked_user())
-        self.tracker.set_operator(self.get_tracked_operator())
+        # request user
+        user = {
+            'username': getattr(self.request.user, 'username', None),
+            'is_anonymous': getattr(self.request.user, 'is_anonymous', False)
+        }
+        self.tracker.set_user(self.filter_tracked_user(user))
+        self.tracker.set_operator(self.filter_tracked_operator({}))
 
-        super().before_process()
+        super().before_process(*args, **kwargs)
 
-    def on_success(self):
+    def on_success(self, *args, **kwargs):
         """
         :return:
         """
 
-        super().on_success()
+        super().on_success(*args, **kwargs)
 
-    def on_error(self, error: Exception) -> Exception:
+    def on_error(self, error: Exception, *args, **kwargs) -> Exception:
         if not isinstance(error, errors.APIError):
             self.tracker.set_error(error)
 
-        return super().on_error(error)
+        return super().on_error(error, *args, **kwargs)
 
-    def before_response(self):
+    def before_response(self, *args, **kwargs):
         if hasattr(self, 'data'):
             fmts = get_http_tracker_fmts('response.data', self.request.tracker_config)
             if fmts:
@@ -350,7 +352,7 @@ class TrackerMixin(ControllerMixin):
                     formats=fmts
                 )
 
-        super().before_response()
+        super().before_response(*args, **kwargs)
 
     def apply_async(self, task_func, *args, **kwargs):
         return self.request.apply_async(task_func, *args, **kwargs)
@@ -358,25 +360,21 @@ class TrackerMixin(ControllerMixin):
     def delay(self, task_func, *args, **kwargs):
         return self.request.delay(task_func, *args, **kwargs)
 
-    def get_tracked_user(self) -> dict:
+    def filter_tracked_user(self, o) -> dict:
         """
         to be override, user who call api
         :return:
         """
 
-        user = self.request.user
-        return {
-            'username': getattr(user, 'username', None),
-            'is_anonymous': getattr(user, 'is_anonymous', False)
-        }
+        return o
 
-    def get_tracked_operator(self) -> dict:
+    def filter_tracked_operator(self, o) -> dict:
         """
         to be override, user who actually make action
         :return:
         """
 
-        return {}
+        return o
 
     def filter_tracked_params(self, o: dict) -> dict:
         """
@@ -393,5 +391,4 @@ class TrackerMixin(ControllerMixin):
         :return:
         """
 
-        o.pop('data', None)
         return o
