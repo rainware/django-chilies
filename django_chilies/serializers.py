@@ -99,13 +99,13 @@ class Validators(object):
 
 
 class PaginationListSerializer(serializers.ListSerializer):
-    def __init__(self, total, data, *args, **kwargs):
+    def __init__(self, total, rows, *args, **kwargs):
         self.__total = total
-        if isinstance(data, QuerySet):
+        if isinstance(rows, QuerySet):
             self.__data = None
-            super(self.__class__, self).__init__(data, *args, **kwargs)
+            super(self.__class__, self).__init__(rows, *args, **kwargs)
         else:
-            self.__data = data
+            self.__data = rows
             kwargs['child'] = kwargs.get('child', serializers.Field())
             super(self.__class__, self).__init__(*args, **kwargs)
 
@@ -152,11 +152,6 @@ class ModelPaginationSerializerWithoutCount(serializers.ModelSerializer):
             total = None
             return cls.many_init(total, queryset, *args, **kwargs)
         return super().__new__(cls, queryset, *args, **kwargs)
-
-
-class ModelLessPaginationSerializer(serializers.Serializer):
-    total = serializers.IntegerField(required=False)
-    rows = serializers.ListField(required=False, default=[])
 
 
 class SerializerTimeFieldWithZone(SerializerTimeField):

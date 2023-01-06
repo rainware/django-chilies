@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from . import errors
 from .errors import APICodes
-from .serializers import PaginationListSerializer, ModelLessPaginationSerializer
+from .serializers import PaginationListSerializer
 from .settings import get_http_tracker_fmts
 from .trackers import HTTPTracker
 from .utils import deepcopy
@@ -289,7 +289,7 @@ class ParamsMixin(ControllerMixin):
         res_data = {'code': code, 'message': message}
         if isinstance(res, (dict, list, str)):
             res_data['data'] = res
-        elif isinstance(res, (PaginationListSerializer, ModelLessPaginationSerializer)):
+        elif isinstance(res, (PaginationListSerializer, )):
             res_data['data'] = res.data['rows']
             if res.data['total'] is not None:
                 res_data['total'] = res.data['total']
