@@ -5,7 +5,7 @@ import sys
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 
-from libs.utils import trace_error
+from .utils import trace_error
 from .settings import get_writers_config, get_default_level
 from .utils import singleton_class, get_func, JSONEncoder
 

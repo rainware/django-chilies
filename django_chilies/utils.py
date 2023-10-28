@@ -3,6 +3,7 @@ import hashlib
 import importlib
 import json
 import random
+import traceback
 
 import django
 import sys
@@ -157,3 +158,17 @@ def time_from_current_timezone(value):
     day = datetime.date(1971, 1, 1)
     dt = from_current_timezone(datetime.datetime.combine(day, value)).astimezone(pytz.utc)
     return dt.time()
+
+
+def trace_error(logger=None):
+    etype, evalue, tracebackObj = sys.exc_info()[:3]
+    content = 'Type: %s\nValue: %s' % (etype, evalue)
+    if logger:
+        logger.exception('ErrorStack:\n' + content)
+
+    lines = []
+    for line in traceback.format_exception(etype, evalue, tracebackObj)[1:]:
+        line = line.rstrip()
+        lines.append(line)
+
+    return '%s\n%s' % (content, '\n'.join(lines))

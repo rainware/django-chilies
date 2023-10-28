@@ -6,8 +6,6 @@ from rest_framework import serializers
 
 from bookstore.models import Author
 
-from django_chilies.serializers import ModelLessPaginationSerializer
-
 
 class RequestSerializer(serializers.Serializer):
     q = serializers.CharField(required=False)

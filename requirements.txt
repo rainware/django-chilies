@@ -1,6 +1,5 @@
-django>=3.0.4
-djangorestframework>=3.11.0
+django>=4.2
+djangorestframework>=3.14.0
 celery>=4.4.0
 kafka-python>=2.0.2
 pytz>=2020.1
-django-composite-foreignkey>=1.1.0
