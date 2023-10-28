@@ -1,15 +1,21 @@
 from collections import Counter
-from operator import attrgetter
+from functools import reduce
+from operator import attrgetter, or_
 
 from django.db import models, transaction, router
 from django.db.models import QuerySet, sql, signals, TimeField, \
-    ProtectedError, Func
+    ProtectedError, Func, CharField
 from django.db.models.deletion import Collector
+from django.db.models.signals import post_save
+from django.db.models.sql import AND
+from django.db.models.sql.where import WhereNode
+from django.forms import JSONField as _JSONField
 from django.utils import timezone
 
-from . import errors
-from .serializers import model_serializer_class
-from .utils import time_to_current_timezone, time_from_current_timezone
+from .. import errors
+from ..common import DefaultJSONEncoder
+from ..serializers import model_serializer_class
+from ..utils import time_to_current_timezone, time_from_current_timezone
 
 
 def get_or_none(model_cls, kwargs, raise_error=False):
@@ -41,9 +47,11 @@ class CustomQuerySet(QuerySet):
 
     def delete(self, deleter=''):
         """Delete the records in the current QuerySet."""
-        assert self.query.can_filter(), \
-            "Cannot use 'limit' or 'offset' with delete."
-
+        self._not_support_combined_queries("delete")
+        if self.query.is_sliced:
+            raise TypeError("Cannot use 'limit' or 'offset' with delete().")
+        if self.query.distinct or self.query.distinct_fields:
+            raise TypeError("Cannot call delete() after .distinct().")
         if self._fields is not None:
             raise TypeError("Cannot call delete() after .values() or .values_list()")
 
@@ -57,9 +65,9 @@ class CustomQuerySet(QuerySet):
         # Disable non-supported fields.
         del_query.query.select_for_update = False
         del_query.query.select_related = False
-        del_query.query.clear_ordering(force_empty=True)
+        del_query.query.clear_ordering(force=True)
 
-        collector = FakeDeleteCollector(using=del_query.db)
+        collector = FakeDeleteCollector(using=del_query.db, origin=self)
         collector.collect(del_query)
         deleted, _rows_count = collector.delete(deleter=deleter)
 
@@ -99,7 +107,7 @@ class FakeDeleteCollector(Collector):
         if len(self.data) == 1 and len(instances) == 1:
             instance = list(instances)[0]
             if self.can_fast_delete(instance):
-                with transaction.mark_for_rollback_on_error():
+                with transaction.mark_for_rollback_on_error(self.using):
                     if issubclass(model, FakeDeleteModel):
                         if not instance.deleted:
                             count = 1
@@ -119,7 +127,10 @@ class FakeDeleteCollector(Collector):
             for model, obj in self.instances_with_model():
                 if not model._meta.auto_created:
                     signals.pre_delete.send(
-                        sender=model, instance=obj, using=self.using
+                        sender=model,
+                        instance=obj,
+                        using=self.using,
+                        origin=self.origin,
                     )
 
             # fast deletes
@@ -134,16 +145,33 @@ class FakeDeleteCollector(Collector):
                         query.update_batch(pk_list,
                                            {'deleted': True, 'deleter': deleter,
                                             'delete_time': timezone.now()}, self.using)
+                        deleted_counter[qs.model._meta.label] += len(pk_list)
                 else:
                     count = qs._raw_delete(using=self.using)
-                    deleted_counter[qs.model._meta.label] += count
+                    if count:
+                        deleted_counter[qs.model._meta.label] += count
 
             # update fields
-            for model, instances_for_fieldvalues in self.field_updates.items():
-                for (field, value), instances in instances_for_fieldvalues.items():
+            for (field, value), instances_list in self.field_updates.items():
+                updates = []
+                objs = []
+                for instances in instances_list:
+                    if (
+                            isinstance(instances, models.QuerySet)
+                            and instances._result_cache is None
+                    ):
+                        updates.append(instances)
+                    else:
+                        objs.extend(instances)
+                if updates:
+                    combined_updates = reduce(or_, updates)
+                    combined_updates.update(**{field.name: value})
+                if objs:
+                    model = objs[0].__class__
                     query = sql.UpdateQuery(model)
-                    query.update_batch([obj.pk for obj in instances],
-                                       {field.name: value}, self.using)
+                    query.update_batch(
+                        list({obj.pk for obj in objs}), {field.name: value}, self.using
+                    )
 
             # reverse instance collections
             for instances in self.data.values():
@@ -159,6 +187,7 @@ class FakeDeleteCollector(Collector):
                         query.update_batch(pk_list,
                                            {'deleted': True, 'deleter': deleter,
                                             'delete_time': timezone.now()}, self.using)
+                        deleted_counter[model._meta.label] += len(pk_list)
                 else:
                     query = sql.DeleteQuery(model)
                     pk_list = [obj.pk for obj in instances]
@@ -168,14 +197,12 @@ class FakeDeleteCollector(Collector):
                 if not model._meta.auto_created:
                     for obj in instances:
                         signals.post_delete.send(
-                            sender=model, instance=obj, using=self.using
+                            sender=model,
+                            instance=obj,
+                            using=self.using,
+                            origin=self.origin,
                         )
 
-        # update collected instances
-        for instances_for_fieldvalues in self.field_updates.values():
-            for (field, value), instances in instances_for_fieldvalues.items():
-                for obj in instances:
-                    setattr(obj, field.attname, value)
         for model, instances in self.data.items():
             for instance in instances:
                 setattr(instance, model._meta.pk.attname, None)
@@ -215,9 +242,13 @@ class ModelWrapper(models.Model):
     def get_or_none(cls, *args, **kwargs):
         if 'pk' in kwargs and kwargs['pk'] is None:
             return None
+        if 'id' in kwargs and kwargs['id'] is None:
+            return None
         try:
             return cls.objects.get(*args, **kwargs)
         except cls.DoesNotExist:
+            return None
+        except errors.ResourceNotExist:
             return None
 
     @classmethod
@@ -266,17 +297,46 @@ class ModelWrapper(models.Model):
         return model_obj
 
     @classmethod
+    def update_or_create(cls, *args, **kwargs):
+        model_obj = cls.objects.update_or_create(*args, **kwargs)
+        return model_obj
+
+    @classmethod
     def bulk_create(cls, *args, **kwargs):
-        return cls.objects.bulk_create(*args, **kwargs)
+        objs = args[0]
+        res = cls.objects.bulk_create(*args, **kwargs)
+        for obj in objs:
+            post_save.send(obj.__class__, instance=obj, created=True)
+
+        return res
 
     def serialized_data(self, fields=None):
         return self.serializer(self, fields=fields).data
 
     def update(self, _refresh=True, **kwargs):
-        kwargs['update_time'] = timezone.now()
-        self.__class__.objects.filter(pk=self.pk).update(**kwargs)
-        if _refresh:
-            self.refresh_from_db()
+        if hasattr(self, 'update_time'):
+            kwargs['update_time'] = timezone.now()
+        update_fields = []
+        for k, v in kwargs.items():
+            update_fields.append(k)
+            setattr(self, k, v)
+        self.save(update_fields=update_fields)
+
+    @classmethod
+    def bulk_update(cls, *args, **kwargs):
+        objs, fields = args[0], args[1]
+        res = cls.objects.bulk_update(*args, **kwargs)
+        for obj in objs:
+            post_save.send(obj.__class__, instance=obj, created=False, update_fields=fields)
+
+        return res
+
+    class Meta:
+        abstract = True
+
+
+class StatusModel(models.Model):
+    status = models.BooleanField(default=True)
 
     class Meta:
         abstract = True
@@ -342,3 +402,31 @@ class TimeFieldWithZone(TimeField):
         if value is None:
             return value
         return time_from_current_timezone(value)
+
+
+class JSONField(_JSONField):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.encoder:
+            self.encoder = DefaultJSONEncoder
+
+
+class NullAgg(Func):
+    """Annotation that causes GROUP BY without aggregating.
+
+    A fake aggregate Func class that can be used in an annotation to cause
+    a query to perform a GROUP BY without also performing an aggregate
+    operation that would require the server to enumerate all rows in every
+    group.
+
+    Takes no constructor arguments and produces a value of NULL.
+
+    Example:
+        ContentType.objects.values('app_label').annotate(na=NullAgg())
+    """
+    template = 'NULL'
+    contains_aggregate = True
+    window_compatible = False
+    arity = 0
+    output_field = CharField()

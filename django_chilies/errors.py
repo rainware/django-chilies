@@ -28,10 +28,17 @@ class APICodes(object):
 class Error(Exception):
     CODE = APICodes.SUCCESS
 
-    def __init__(self, content=None, *args, **kwargs):
+    def __init__(self, content=None, raw=None, *args, **kwargs):
+        """
+        :param content:
+        :param raw: raw exception
+        :param args:
+        :param kwargs:
+        """
         self.code, self.message = self.CODE.code, self.CODE.message
         if content:
             self.message = '%s: %s' % (self.message, content)
+        self.raw = raw
         extra = kwargs.pop('extra', None)
         if extra is not None:
             self.extra = extra
@@ -111,7 +118,7 @@ class InternalServerError(Error):
         """
         super().__init__(*args, **kwargs)
 
-        e_type, e_value, e_trackback = sys.exc_info()
+        e_type, e_value, e_traceback = sys.exc_info()
         if e_type:
             self.extra['e_type'] = e_type.__name__
             self.extra['e_value'] = str(e_value)

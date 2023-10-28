@@ -3,12 +3,16 @@ import logging
 import sys
 
 from kafka import KafkaProducer
+from kafka.errors import NoBrokersAvailable
 
+from libs.utils import trace_error
 from .settings import get_writers_config, get_default_level
 from .utils import singleton_class, get_func, JSONEncoder
 
 writers_config = get_writers_config()
 default_level = get_default_level()
+
+default_logger = logging.getLogger('django.server')
 
 
 def instance_from_settings(name):
@@ -17,17 +21,18 @@ def instance_from_settings(name):
     cls = get_func(config['class'])
 
     if 'level' not in config:
-        return cls(level=default_level, **config)
+        return cls(name=name, level=default_level, **config)
     else:
-        return cls(**config)
+        return cls(name=name, **config)
 
 
 class Writer(object):
 
-    def __init__(self, level=logging.NOTSET, *args, **kwargs):
+    def __init__(self, name='', level=logging.NOTSET, *args, **kwargs):
         if not isinstance(level, int):
             level = logging.getLevelName(level)
         self.level = level
+        self.name = name
 
     def write(self, o):
         raise NotImplementedError()
@@ -41,15 +46,26 @@ class Writer(object):
         raise NotImplementedError()
 
 
-@singleton_class()
+# @singleton_class()
 class KafkaWriter(Writer):
+    _producers = {}
 
-    def __init__(self, producer=None, topic=None, level=None, *args, **kwargs):
-        super().__init__(level=level, *args, **kwargs)
+    def __init__(self, name='', producer=None, topic=None, level=None, *args, **kwargs):
+        super().__init__(name=name, level=level, *args, **kwargs)
         self.topic = topic
-        self.producer = KafkaProducer(**producer)
+        if name in self._producers:
+            self.producer = self._producers[name]
+        else:
+            try:
+                self.producer = KafkaProducer(**producer)
+                self._producers[name] = self.producer
+            except NoBrokersAvailable:
+                trace_error(logger=default_logger)
+                self.producer = None
 
     def write(self, o):
+        if not self.producer:
+            return
         level = o.get('level')
         if level and not self.is_enabled_for(level):
             return
@@ -62,8 +78,8 @@ class KafkaWriter(Writer):
 
 
 class SystemWriter(Writer):
-    def __init__(self, level=None, redirect_stderr=False, *args, **kwargs):
-        super().__init__(level=level, *args, **kwargs)
+    def __init__(self, name='', level=None, redirect_stderr=False, *args, **kwargs):
+        super().__init__(name=name, level=level, *args, **kwargs)
         self.redirect_stderr = redirect_stderr
 
     def write(self, o):

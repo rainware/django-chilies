@@ -129,10 +129,12 @@ class Logger(object):
 
     def exception(self, e=None, with_stack=True):
         if self.level <= logging.ERROR:
-            if e:
+            if isinstance(e, Exception):
                 e_type, e_value, traceback_obj = type(e), e, e.__traceback__
             else:
                 e_type, e_value, traceback_obj = sys.exc_info()[:3]
+                if e:
+                    self.error(e)
 
             self.console.exception(e_value)
             title = '%s:%s' % (e_type, e_value)
@@ -182,11 +184,10 @@ class SessionLogger(Logger):
         self.args = deepcopy(args)
         self.kwargs = deepcopy(kwargs)
         self.session_level = logging.DEBUG
+        self.error_payload = None
         self.has_error = False
+        self.has_warning = False
         super().__init__(tracker.name, *args, **kwargs)
-
-    def set_session_level(self, level):
-        self.session_level = level
 
     def clone(self, with_context=False, catch_exc=False):
         s = self.__class__(self.tracker, with_context=with_context, catch_exc=catch_exc, *self.args, **self.kwargs)
@@ -198,6 +199,30 @@ class SessionLogger(Logger):
 
     def close(self):
         self.persistent()
+
+    def set_session_level(self, level):
+        self.session_level = level
+
+    def set_error(self, e=None, with_stack=True):
+        self.set_session_level(logging.ERROR)
+        self.has_error = True
+        if e:
+            e_type, e_value, traceback_obj = type(e), e, e.__traceback__
+        else:
+            e_type, e_value, traceback_obj = sys.exc_info()[:3]
+        stack = None
+        if with_stack:
+            lines = []
+            for line in traceback.format_exception(e_type, e_value, traceback_obj):
+                line = line.rstrip('\n')
+                lines.append(line)
+            stack = '\n'.join(lines)
+        self.error_payload = {
+            'type': e_type.__name__ if e_type else '',
+            'value': str(e_value),
+            'stack': stack
+        }
+        self.console.exception(e_value)
 
     def debug(self, *args, **kwargs):
         return super().debug(*args, **kwargs)
@@ -212,24 +237,32 @@ class SessionLogger(Logger):
     def warn(self, *args, **kwargs):
         res = super().warn(*args, **kwargs)
         if res:
+            self.has_warning = True
             if self.session_level < logging.WARN:
                 self.set_session_level(logging.WARN)
         return res
 
+    def warning(self, *args, **kwargs):
+        return self.warn(*args, **kwargs)
+
     def error(self, *args, **kwargs):
         res = super().error(*args, **kwargs)
         if res:
-            self.has_error = True
+            # session的has_error代表本次session的结果，由set_error函数来设置
+            # 手动error/exception记录的错误，被视为warning
+            self.has_warning = True
             if self.session_level < logging.ERROR:
-                self.set_session_level(logging.ERROR)
+                self.set_session_level(logging.WARN)
         return res
 
     def exception(self, *args, **kwargs):
         res = super().exception(*args, **kwargs)
         if res:
-            self.has_error = True
+            # session的has_error代表本次session的结果，由set_error函数来设置
+            # 手动error/exception记录的错误，被视为warning
+            self.has_warning = True
             if self.session_level < logging.ERROR:
-                self.set_session_level(logging.ERROR)
+                self.set_session_level(logging.WARN)
         return res
 
     def __enter__(self, ):
@@ -237,7 +270,7 @@ class SessionLogger(Logger):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_val:
-            self.exception()
+            self.set_error()
         self.close()
         return not exc_val or self.catch_exc
 
@@ -255,8 +288,16 @@ class Tracker(object):
         self.context = {
             'level': logging.INFO,
             'has_error': False,
-            'has_uncritical_error': False
+            'has_warning': False,
+            'error': None,
+            'attrs': {}
         }
+
+    def set_attr(self, k, v):
+        self.context['attrs'][k] = v
+
+    def get_attr(self, k):
+        return self.context['attrs'][k]
 
     def new_session(self, with_context=False, catch_exc=False):
         return self.session.clone(with_context=with_context, catch_exc=catch_exc)
@@ -277,7 +318,15 @@ class Tracker(object):
         if kwargs.pop('new_session', False):
             with self.new_session() as session:
                 return session.warn(*args, **kwargs)
-        return self.session.warn(*args, **kwargs)
+        res = self.session.warn(*args, **kwargs)
+        if res:
+            self.context['has_warning'] = True
+            if self.context['level'] < logging.WARN:
+                self.set_context_level(logging.WARN)
+        return res
+
+    def warning(self, *args, **kwargs):
+        return self.warn(*args, **kwargs)
 
     def error(self, *args, **kwargs):
         if kwargs.pop('new_session', False):
@@ -285,8 +334,11 @@ class Tracker(object):
                 return session.error(*args, **kwargs)
         res = self.session.error(*args, **kwargs)
         if res:
-            self.context['has_uncritical_error'] = True
-            self.set_context_level(logging.WARN)
+            # tracker的has_error代表本次track的结果，由set_error函数来设置
+            # 手动error/exception记录的错误，被视为warning
+            self.context['has_warning'] = True
+            if self.context['level'] < logging.ERROR:
+                self.set_context_level(logging.WARN)
         return res
 
     def exception(self, *args, **kwargs):
@@ -296,8 +348,11 @@ class Tracker(object):
                 return session.exception(*args, **kwargs)
         res = self.session.exception(*args, **kwargs)
         if res:
-            self.context['has_uncritical_error'] = True
-            self.set_context_level(logging.WARN)
+            # tracker的has_error代表本次track的结果，由set_error函数来设置
+            # 手动error/exception记录的错误，被视为warning
+            self.context['has_warning'] = True
+            if self.context['level'] < logging.ERROR:
+                self.set_context_level(logging.WARN)
 
         return res
 
@@ -384,6 +439,8 @@ class HTTPTracker(Tracker):
             'message': None,
         }, user={}, operator={}))
 
+        self.request_params_tracked = False
+
     def set_request_id(self, _id):
         self.context['request']['id'] = _id
         self.console.debug('Request ID: %s', _id)
@@ -420,6 +477,7 @@ class HTTPTracker(Tracker):
         if 'text' in formats:
             self.context['request']['Params'] = text
         self.console.debug('RequestParams: %s', text)
+        self.request_params_tracked = True
 
     def set_response_headers(self, headers, formats=['json', 'text']):
         text = json.dumps(headers, ensure_ascii=False, cls=JSONEncoder)
@@ -464,7 +522,7 @@ class HTTPTracker(Tracker):
 
         if self.context['has_error']:
             self.session.error(text)
-        elif self.context['has_uncritical_error']:
+        elif self.context['has_warning']:
             self.session.warn(text)
         else:
             self.session.info(text)
@@ -503,8 +561,11 @@ class HTTPTracker(Tracker):
             msg['@timestamp'] = session.create_time.strftime('%Y-%m-%dT%H:%M:%S.%f%z')
             msg['level'] = session.session_level
             msg['has_error'] = session.has_error
+            msg['has_warning'] = session.has_warning
             msg['http'] = self.context['http']
         msg['level'] = get_level_name(msg['level'])
+        if not msg.get('error') and session.error_payload:
+            msg['error'] = session.error_payload
         return msg
 
 
@@ -574,7 +635,7 @@ class TaskTracker(Tracker):
         )
         if self.context['has_error']:
             self.session.error(text)
-        elif self.context['has_uncritical_error']:
+        elif self.context['has_warning']:
             self.session.warn(text)
         else:
             self.session.info(text)
@@ -601,6 +662,9 @@ class TaskTracker(Tracker):
             msg['@timestamp'] = session.create_time.strftime('%Y-%m-%dT%H:%M:%S.%f%z')
             msg['level'] = session.session_level
             msg['has_error'] = session.has_error
+            msg['has_warning'] = session.has_warning
             msg['task'] = self.context['task']
         msg['level'] = get_level_name(msg['level'])
+        if not msg.get('error') and session.error_payload:
+            msg['error'] = session.error_payload
         return msg

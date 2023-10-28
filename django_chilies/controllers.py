@@ -1,7 +1,7 @@
 import logging
 
 from rest_framework import serializers
-from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.exceptions import MethodNotAllowed, ParseError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -56,11 +56,10 @@ class _View(APIView):
 
 
 class ControllerMixin(object):
-    def __init__(self, *args, **kwargs):
-        """
-        :param args:
-        :param kwargs:
-        """
+    def __init__(self, view, *args, **kwargs):
+        self.view = view
+        self.request = view.request
+        self.response = None
 
     def before_process(self, *args, **kwargs):
         """
@@ -137,10 +136,11 @@ class APIController(ControllerMixin):
                 cls._siblings.append(sibling)
         return cls
 
-    def __init__(self, view, *args, **kwargs):
-        self.view = view
-        self.request = view.request
-        self.response = None
+    def __init__(self, *args, **kwargs):
+        """
+        :param args:
+        :param kwargs:
+        """
         super().__init__(*args, **kwargs)
 
     def process(self, *args, **kwargs):
@@ -200,14 +200,13 @@ class ParamsMixin(ControllerMixin):
     response_serializer_cls = None
 
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         # 未经校验的参数
         self.unvalidated_params = None
         # 经校验的参数
         self.params = None
         # 返回参数
         self.data = None
-
-        super().__init__(*args, **kwargs)
 
     def before_process(self, *args, **kwargs):
         """
@@ -272,6 +271,11 @@ class ParamsMixin(ControllerMixin):
             else:
                 params[k] = v[-1]
         params.update(self.request.data)
+        # body = self.request.body
+        # try:
+        #     params.update(self.request.data)
+        # except ParseError as e:
+        #     raise errors.ParamError(f"{e}: {body.decode()}")
         self.unvalidated_params = params
 
         # 参数校验
@@ -279,8 +283,11 @@ class ParamsMixin(ControllerMixin):
             request_serializer = self.request_serializer_cls(data=self.unvalidated_params,
                                                              context={'request': self.request})
             if not request_serializer.is_valid():
+                self.params = {}
                 return dict(request_serializer.errors)
             self.params = dict(request_serializer.validated_data)
+        else:
+            self.params = {}
 
         return {}
 
@@ -308,9 +315,8 @@ class ParamsMixin(ControllerMixin):
 class TrackerMixin(ControllerMixin):
 
     def __init__(self, *args, **kwargs):
-        self.tracker: HTTPTracker = self.request.tracker
-
         super().__init__(*args, **kwargs)
+        self.tracker: HTTPTracker = self.request.tracker
 
     def before_process(self, *args, **kwargs):
         if hasattr(self, 'unvalidated_params'):
@@ -338,8 +344,25 @@ class TrackerMixin(ControllerMixin):
         super().on_success(*args, **kwargs)
 
     def on_error(self, error: Exception, *args, **kwargs) -> Exception:
-        if not isinstance(error, errors.APIError):
+        if isinstance(error, errors.APIError):
+            pass
+        else:
             self.tracker.set_error(error)
+
+        if not self.tracker.request_params_tracked:
+            if hasattr(self, 'unvalidated_params'):
+                fmts = get_http_tracker_fmts('request.params', self.request.tracker_config)
+                if fmts:
+                    self.tracker.set_request_params(
+                        self.filter_tracked_params(self.unvalidated_params),
+                        formats=fmts
+                    )
+            # request user
+            user = {
+                'username': getattr(self.request.user, 'username', None),
+                'is_anonymous': getattr(self.request.user, 'is_anonymous', False)
+            }
+            self.tracker.set_user(self.filter_tracked_user(user))
 
         return super().on_error(error, *args, **kwargs)
 

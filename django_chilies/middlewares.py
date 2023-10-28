@@ -1,5 +1,7 @@
 import functools
 import logging
+
+import django
 from time import time
 
 from django.urls import resolve
@@ -8,7 +10,7 @@ from django.utils.deprecation import MiddlewareMixin
 from . import trackers
 from .settings import get_http_tracker_config, get_http_tracker_fmts
 from .trackers import HTTPTracker
-from .utils import generate_uuid, headers_dict, deepcopy
+from .utils import generate_uuid, request_headers_dict, response_headers_dict
 
 
 def _request_task_apply_async(request, task, *args, **kwargs):
@@ -43,11 +45,10 @@ class TrackerMiddleware(MiddlewareMixin):
         http_info = self.__get_http_info(request)
         request.tracker.set_http_info(self.filter_tracked_http_info(request, http_info))
         # request headers
-        request_headers = headers_dict(request.headers.__dict__['_store'])
         fmts = get_http_tracker_fmts('request.header', tracker_config)
         if fmts:
             request.tracker.set_request_headers(
-                self.filter_tracked_request_headers(request, request_headers),
+                self.filter_tracked_request_headers(request, request_headers_dict(request)),
                 formats=fmts
             )
         # request body
@@ -66,7 +67,7 @@ class TrackerMiddleware(MiddlewareMixin):
         fmts = get_http_tracker_fmts('response.header', request.tracker_config)
         if fmts:
             request.tracker.set_response_headers(
-                self.filter_tracked_response_headers(request, response, headers_dict(response._headers)),
+                self.filter_tracked_response_headers(request, response, response_headers_dict(response)),
                 formats=fmts
             )
         # response body

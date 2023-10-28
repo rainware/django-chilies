@@ -2,19 +2,20 @@ from rest_framework import serializers, fields
 from rest_framework.fields import TimeField as SerializerTimeField
 from rest_framework.relations import RelatedField
 
-from compositefk.fields import CompositeForeignKey
 from django.contrib.contenttypes.fields import GenericRelation, GenericForeignKey
 from django.db import models
 from django.db.models import QuerySet, ManyToManyField, DateTimeField, TimeField
 
 # django版本兼容
+
 if hasattr(models, 'ForeignObjectRel'):
     from django.db.models import ForeignObjectRel
 else:
     ForeignObjectRel = type('ForeignObjectRel', (object,), {})
 from django.db.models.fields.related import RelatedField
 
-from .utils import time_to_current_timezone, time_from_current_timezone, DATETIME_FORMAT, TIME_FORMAT
+from .utils import time_to_current_timezone, time_from_current_timezone
+from .settings import DATETIME_FORMAT, TIME_FORMAT
 
 
 class BlankableDatetimeField(serializers.DateTimeField):
@@ -202,6 +203,7 @@ def model_serializer_class(model_cls, include=None, related=None, extra=None, ex
     :param count: bool, paging为true时，是否计算总数。如果不计算，则返回的total值为None
     :return:
     """
+    from .models.compositefk.fields import CompositeForeignKey
 
     parent_slr = serializers.ModelSerializer
     if paging:

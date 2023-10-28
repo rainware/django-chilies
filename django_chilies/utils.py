@@ -3,24 +3,28 @@ import hashlib
 import importlib
 import json
 import random
+
+import django
+import sys
 import threading
 import time
 from functools import wraps
-from json import JSONEncoder as JEncoder
-
 import pytz
-from django.utils.encoding import force_text
-from django.utils.functional import Promise
 
+from .common import DefaultJSONEncoder
 from .settings import get_json_encoder
 from django.forms.utils import to_current_timezone, from_current_timezone
 from rest_framework.renderers import JSONRenderer as JRenderer
 
 from django_chilies.errors import APIError
 
-DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S'
-DATETIME_FORMAT_TZ = '%Y-%m-%dT%H:%M:%SZ'
-TIME_FORMAT = '%H:%M:%S'
+
+def get_module(name):
+    return sys.modules[name]
+
+
+def get_class_path(o):
+    return f"{o.__module__}.{o.__name__}"
 
 
 def get_func(func_name):
@@ -36,24 +40,9 @@ def get_func(func_name):
         return eval(func_name)
 
 
-class _JSONEncoder(JEncoder):
-    DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
-    TIME_FORMAT = '%H:%M:%S'
-
-    def default(self, obj):
-        if isinstance(obj, datetime.datetime):
-            return obj.strftime(self.DATE_FORMAT)
-        if isinstance(obj, datetime.time):
-            return obj.strftime(self.TIME_FORMAT)
-        if isinstance(obj, Promise):
-            return force_text(obj)
-
-        return super().default(obj)
-
-
 je_cname = get_json_encoder()
 if je_cname == 'django_chilies.utils.JSONEncoder':
-    JSONEncoder = _JSONEncoder
+    JSONEncoder = DefaultJSONEncoder
 else:
     JSONEncoder = get_func(je_cname)
 
@@ -71,6 +60,20 @@ def headers_dict(headers):
     for k, v in dict(headers).items():
         d[v[0]] = v[1]
     return d
+
+
+def request_headers_dict(request):
+    if django.VERSION[0] >= 4:
+        return dict(request.headers)
+    else:
+        return headers_dict(request.headers.__dict__['_store'])
+
+
+def response_headers_dict(response):
+    if django.VERSION[0] >= 4:
+        return dict(response.headers)
+    else:
+        return headers_dict(response._headers)
 
 
 def generate_uuid(value=None, rand=True, uppercase=True, length=32):

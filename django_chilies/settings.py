@@ -3,6 +3,10 @@ import json
 from django.conf import settings
 
 DEFAULT = {
+    'DATETIME_FORMAT': '%Y-%m-%d %H:%M:%S',
+    'DATETIME_FORMAT_TZ': '%Y-%m-%dT%H:%M:%SZ',
+    'DATE_FORMAT': '%Y-%m-%d',
+    'TIME_FORMAT': '%H:%M:%S',
     'JSON_ENCODER': 'django_chilies.utils.JSONEncoder',
     'BASE_DIR': '',  # base path of django project
     'TRACKER': {
@@ -56,12 +60,26 @@ DEFAULT = {
 }
 
 
+def get_config(k):
+    _ = getattr(settings, 'DJANGO_CHILIES', {})
+    if k in _:
+        return _[k]
+
+    return DEFAULT[k]
+
+
+DATETIME_FORMAT = get_config('DATETIME_FORMAT')
+DATETIME_FORMAT_TZ = get_config('DATETIME_FORMAT_TZ')
+DATE_FORMAT = get_config('DATE_FORMAT')
+TIME_FORMAT = get_config('TIME_FORMAT')
+
+
 def get_json_encoder():
-    return getattr(settings, 'DJANGO_CHILIES', {}).get('JSON_ENCODER') or DEFAULT['JSON_ENCODER']
+    return get_config('JSON_ENCODER')
 
 
 def get_base_dir():
-    return getattr(settings, 'DJANGO_CHILIES', {}).get('BASE_DIR') or DEFAULT['BASE_DIR']
+    return get_config('BASE_DIR')
 
 
 def get_http_tracker_config():
